@@ -1,12 +1,12 @@
+import re
 from urllib.parse import urljoin
 
-import re
 import requests
 
 
 GIFA_URL = (
-    "https://www.gifa.com/vis/v1/en/search"
-    "?_sort=date_asc&f_type=profile"
+    "https://www.gifa.com/en/exhibitors-products/"
+    "exhibitor-product-search/"
 )
 
 
@@ -46,8 +46,8 @@ import requests
 
 
 GIFA_URL = (
-    "https://www.gifa.com/vis/v1/en/search"
-    "?_sort=date_asc&f_type=profile"
+    "https://www.gifa.com/en/exhibitors-products/"
+    "exhibitor-product-search/"
 )
 
 GIFA_BASE_URL = "https://www.gifa.com"
@@ -86,7 +86,7 @@ def test_gifa_response_contains_data():
     print("\nContent-Type:", response.headers.get("Content-Type"))
 
 
-def test_finder_loader_is_reachable():
+def test_registry_application_assets_are_reachable():
     response = requests.get(
         GIFA_URL,
         timeout=30,
@@ -97,90 +97,34 @@ def test_finder_loader_is_reachable():
 
     html = response.text
 
-    loader_path = "/static/all/finder-frontend/assets/loader.js"
-
-    assert loader_path in html
-
-    loader_url = urljoin(GIFA_BASE_URL, loader_path)
-
-    loader_response = requests.get(
-        loader_url,
-        timeout=30,
-        headers=get_gifa_headers()
+    script_paths = re.findall(
+        r'<script[^>]+src=["\']([^"\']+\.js)',
+        html,
     )
 
-    assert loader_response.status_code == 200
+    assert "/build/runtime." in html
+    assert "/build/app." in html
 
-    print("\n--- LOADER.JS HEAD ---")
-    print(loader_response.text[:5000])
-    print("--- LOADER.JS HEAD END ---")
+    for script_path in script_paths:
+        script_response = requests.get(
+            urljoin(GIFA_BASE_URL, script_path),
+            timeout=30,
+            headers=get_gifa_headers(),
+        )
+        assert script_response.status_code == 200
 
-    print("\nLoader URL:", loader_url)
-    print("Content-Type:", loader_response.headers.get("Content-Type"))
 
-def test_finder_application_is_reachable():
-    loader_url = urljoin(
-        GIFA_BASE_URL,
-        "/static/all/finder-frontend/assets/loader.js"
-    )
+def test_registry_links_use_current_vis_taxonomy():
+    route_urls = [
+        "https://www.gifa.com/en/vis/v1/directory/a",
+        "https://www.gifa.com/en/vis/v1/search?_query=",
+        "https://www.gifa.com/en/vis/v1/exhprofiles/a22bioOWRFK8LBNtqXs6Cw",
+    ]
 
-    response = requests.get(
-        loader_url,
-        timeout=30,
-        headers=get_gifa_headers()
-    )
-
-    assert response.status_code == 200
-
-    loader_js = response.text
-
-    import_match = "import('./index-fzFnGgbV.js')"
-
-    assert import_match in loader_js
-
-    app_path = "/static/all/finder-frontend/assets/index-fzFnGgbV.js"
-    app_url = urljoin(GIFA_BASE_URL, app_path)
-
-    app_response = requests.get(
-        app_url,
-        timeout=30,
-        headers=get_gifa_headers()
-    )
-
-    assert app_response.status_code == 200
-
-    print("\n--- FINDER APPLICATION HEAD ---")
-    print(app_response.text[:10000])
-    print("--- FINDER APPLICATION HEAD END ---")
-
-    print("\nApplication URL:", app_url)
-    print("Content-Type:", app_response.headers.get("Content-Type"))
-    print("Application size:", len(app_response.text))
-
-def test_exhibitor_directory_module_is_reachable():
-    module_path = (
-        "/static/all/finder-frontend/assets/"
-        "Directory-BwqopVKM.js"
-    )
-
-    module_url = urljoin(GIFA_BASE_URL, module_path)
-
-    response = requests.get(
-        module_url,
-        timeout=30,
-        headers=get_gifa_headers()
-    )
-
-    assert response.status_code == 200
-
-    javascript = response.text
-
-    print("\n--- DIRECTORY MODULE ---")
-    print(javascript)
-    print("--- DIRECTORY MODULE END ---")
-
-    print("\nModule URL:", module_url)
-    print("Content-Type:", response.headers.get("Content-Type"))
-    print("Module size:", len(javascript))
-
-    assert len(javascript) > 0
+    for route_url in route_urls:
+        response = requests.get(
+            route_url,
+            timeout=30,
+            headers=get_gifa_headers(),
+        )
+        assert response.status_code == 200

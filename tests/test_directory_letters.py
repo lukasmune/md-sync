@@ -3,7 +3,7 @@ import string
 import requests
 
 
-BASE_URL = "https://www.gifa.com/vis-api/vis/v1/en/directory"
+BASE_URL = "https://widgets.messe-duesseldorf.de/vis-api/vis/v1/en/directory"
 DOMAIN = "www.gifa.com"
 TARGET_EVENT = "GIFA 2023"
 

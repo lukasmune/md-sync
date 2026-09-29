@@ -1,7 +1,7 @@
 import requests
 
 
-BASE_URL = "https://www.gifa.com/vis-api/vis/v1"
+BASE_URL = "https://widgets.messe-duesseldorf.de/vis-api/vis/v1"
 
 
 def test_directory_api():
