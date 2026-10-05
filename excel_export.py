@@ -328,8 +328,6 @@ def _format_data_sheet(
 
     worksheet.freeze_panes = "A2"
 
-    worksheet.auto_filter.ref = worksheet.dimensions
-
     for cell in worksheet[1]:
         cell.font = Font(
             bold=True,
