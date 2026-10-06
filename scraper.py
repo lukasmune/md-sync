@@ -1,7 +1,9 @@
 import requests
+import sys
 
 from config import (
     DIRECTORY_LETTERS,
+    EVENTS,
     GIFA_BASE_URL,
     GIFA_DOMAIN,
     GIFA_EVENT_ID,
@@ -15,17 +17,19 @@ from database import (
 )
 
 
-def fetch_directory_letter(letter):
-    """Fetch one directory letter from the GIFA API."""
+def fetch_directory_letter(letter, event_config=None):
+    """Fetch one directory letter using the selected event configuration."""
 
-    url = f"{GIFA_BASE_URL}/{letter.lower()}"
+    event_config = event_config or EVENTS["GIFA"]
+
+    url = f"{event_config['base_url']}/{letter.lower()}"
 
     response = requests.get(
         url,
         headers={
             "Accept": "application/json",
             "User-Agent": "Mozilla/5.0",
-            "X-Vis-Domain": GIFA_DOMAIN,
+            "X-Vis-Domain": event_config["domain"],
         },
         timeout=REQUEST_TIMEOUT,
     )
@@ -55,13 +59,16 @@ def filter_exhibitors_by_event(records, event_label):
     return exhibitors
 
 
-def fetch_exhibitors_by_event(event_label):
+def fetch_exhibitors_by_event(event_label, event_config=None):
     """Fetch all profile records associated with an event."""
 
     exhibitors = []
 
     for letter in DIRECTORY_LETTERS:
-        records = fetch_directory_letter(letter)
+        if event_config is None:
+            records = fetch_directory_letter(letter)
+        else:
+            records = fetch_directory_letter(letter, event_config)
 
         exhibitors.extend(
             filter_exhibitors_by_event(
@@ -77,6 +84,17 @@ def fetch_gifa_2023_exhibitors():
     """Fetch and return all GIFA 2023 exhibitor profile records."""
 
     return fetch_exhibitors_by_event("GIFA 2023")
+
+
+def get_event_config(event_name):
+    """Return a configured event by case-insensitive name."""
+
+    try:
+        return EVENTS[event_name.upper()]
+    except KeyError as error:
+        raise ValueError(
+            f"Unknown event {event_name!r}; choose from {', '.join(EVENTS)}"
+        ) from error
 
 
 def sync_event(
@@ -139,6 +157,22 @@ def sync_event_from_api(
     )
 
 
+def sync_configured_event(event_name):
+    """Fetch and synchronize one of the configured Messe Düsseldorf events."""
+
+    config = get_event_config(event_name)
+    exhibitors = fetch_exhibitors_by_event(
+        config["event_label"],
+        event_config=config,
+    )
+    return sync_event(
+        event_name=event_name.upper(),
+        edition=config["edition"],
+        event_code=config["event_code"],
+        exhibitors=exhibitors,
+    )
+
+
 def sync_gifa_2023():
     """
     Fetch GIFA 2023 exhibitors and synchronize them
@@ -154,9 +188,10 @@ def sync_gifa_2023():
 
 
 if __name__ == "__main__":
-    result = sync_gifa_2023()
+    selected_event = sys.argv[1] if len(sys.argv) > 1 else "GIFA"
+    result = sync_configured_event(selected_event)
 
-    print("\n--- GIFA 2023 SYNC ---")
+    print(f"\n--- {selected_event.upper()} SYNC ---")
     print(f"Total exhibitors:    {result['total']}")
     print(f"New companies:       {result['created']}")
     print(f"Updated companies:   {result['updated']}")

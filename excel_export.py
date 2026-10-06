@@ -58,7 +58,11 @@ def export_exhibition_to_excel(
                 c.id AS company_id,
                 c.name AS company_name,
                 c.country,
-                c.city
+                c.city,
+                c.website,
+                c.logo,
+                c.created_at,
+                c.updated_at
             FROM companies c
             INNER JOIN exhibition_companies ec
                 ON ec.company_id = c.id
@@ -78,6 +82,12 @@ def export_exhibition_to_excel(
             c.website,
             c.logo,
             c.created_at AS company_created_at,
+            c.updated_at AS company_updated_at,
+            c.email,
+            c.contact_person,
+            c.telephone,
+            c.product_categories_json,
+            c.product_groups_json,
                 e.event_name,
                 e.edition,
                 e.event_code,
@@ -143,7 +153,11 @@ def export_database_to_excel(output_path):
         records = connection.execute(
             """
             SELECT c.id AS company_id, c.name AS company_name, c.country,
-                c.city, c.website, c.logo, c.created_at AS company_created_at,
+                c.city, c.website, c.logo,
+                c.created_at AS company_created_at,
+                c.updated_at AS company_updated_at,
+                c.email, c.contact_person, c.telephone,
+                c.product_categories_json, c.product_groups_json,
                 e.event_name, e.edition, e.event_code,
                 ec.gifa_exhibitor_id, ec.seo_id AS exh_seo_id,
                 ec.hall, ec.stand, ec.location, ec.premium, ec.tags_json,
@@ -158,7 +172,8 @@ def export_database_to_excel(output_path):
         companies = connection.execute(
             """
             SELECT DISTINCT c.id AS company_id, c.name AS company_name,
-                c.country, c.city
+                c.country, c.city, c.website, c.logo,
+                c.created_at, c.updated_at
             FROM companies c
             JOIN exhibition_companies ec ON ec.company_id = c.id
             ORDER BY c.name COLLATE NOCASE
@@ -227,7 +242,10 @@ def _build_companies_sheet(
 ):
     """Build the companies worksheet."""
 
-    headers = ["Company ID", "Company Name", "Country", "City"]
+    headers = [
+        "Company ID", "Company Name", "Country", "City", "Website", "Logo",
+        "Created At", "Updated At",
+    ]
 
     worksheet.append(headers)
 
@@ -238,6 +256,10 @@ def _build_companies_sheet(
                 company["company_name"],
                 company["country"],
                 company["city"],
+                company["website"],
+                company["logo"],
+                company["created_at"],
+                company["updated_at"],
             ]
         )
 
@@ -260,6 +282,8 @@ def _build_records_sheet(
         "City",
         "Website",
         "Logo",
+        "Company Created At",
+        "Company Updated At",
         "Event",
         "Edition",
         "Event Code",
@@ -271,6 +295,11 @@ def _build_records_sheet(
         "Premium",
         "Lead Status",
         "Tags",
+        "Email",
+        "Contact Person",
+        "Telephone",
+        "Product Categories",
+        "Product Groups",
         "First Seen",
         "Last Seen",
         "Last Changed",
@@ -287,6 +316,8 @@ def _build_records_sheet(
                 record["city"],
                 record["website"],
                 record["logo"],
+                record["company_created_at"],
+                record["company_updated_at"],
                 record["event_name"],
                 record["edition"],
                 record["event_code"],
@@ -298,6 +329,11 @@ def _build_records_sheet(
                 bool(record["premium"]),
                 _lead_status(record),
                 record["tags_json"],
+                record["email"],
+                record["contact_person"],
+                record["telephone"],
+                record["product_categories_json"],
+                record["product_groups_json"],
                 record["first_seen_at"],
                 record["last_seen_at"],
                 record["changed_at"],

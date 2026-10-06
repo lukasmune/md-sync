@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -123,6 +124,21 @@ def initialize_database():
             try:
                 cursor.execute(
                     f"ALTER TABLE exhibition_companies ADD COLUMN {column} TEXT"
+                )
+            except sqlite3.OperationalError as error:
+                if "duplicate column name" not in str(error):
+                    raise
+
+        for column in (
+            "email",
+            "contact_person",
+            "telephone",
+            "product_categories_json",
+            "product_groups_json",
+        ):
+            try:
+                cursor.execute(
+                    f"ALTER TABLE companies ADD COLUMN {column} TEXT"
                 )
             except sqlite3.OperationalError as error:
                 if "duplicate column name" not in str(error):
@@ -298,6 +314,7 @@ def create_company(record):
     city = record.get("city")
     website = record.get("website")
     logo = record.get("logo")
+    optional = extract_profile_fields(record)
 
     normalized_name = normalize_company_name(name)
     normalized_country = normalize_country(country)
@@ -319,10 +336,15 @@ def create_company(record):
                 normalized_city,
                 website,
                 logo,
+                email,
+                contact_person,
+                telephone,
+                product_categories_json,
+                product_groups_json,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -333,6 +355,11 @@ def create_company(record):
                 normalized_city,
                 website,
                 logo,
+                optional["email"],
+                optional["contact_person"],
+                optional["telephone"],
+                optional["product_categories_json"],
+                optional["product_groups_json"],
                 now,
                 now,
             ),
@@ -352,6 +379,7 @@ def update_company(company_id, record):
     city = record.get("city")
     website = record.get("website")
     logo = record.get("logo")
+    optional = extract_profile_fields(record)
 
     with get_connection() as connection:
         cursor = connection.cursor()
@@ -362,12 +390,17 @@ def update_company(company_id, record):
             SET
                 name = ?,
                 normalized_name = ?,
-                country = ?,
-                normalized_country = ?,
-                city = ?,
-                normalized_city = ?,
-                website = ?,
-                logo = ?,
+                country = COALESCE(?, country),
+                normalized_country = COALESCE(?, normalized_country),
+                city = COALESCE(?, city),
+                normalized_city = COALESCE(?, normalized_city),
+                website = COALESCE(?, website),
+                logo = COALESCE(?, logo),
+                email = COALESCE(?, email),
+                contact_person = COALESCE(?, contact_person),
+                telephone = COALESCE(?, telephone),
+                product_categories_json = COALESCE(?, product_categories_json),
+                product_groups_json = COALESCE(?, product_groups_json),
                 updated_at = ?
             WHERE id = ?
             """,
@@ -375,11 +408,16 @@ def update_company(company_id, record):
                 name,
                 normalize_company_name(name),
                 country,
-                normalize_country(country),
+                normalize_country(country) if country is not None else None,
                 city,
-                normalize_city(city),
+                normalize_city(city) if city is not None else None,
                 website,
                 logo,
+                optional["email"],
+                optional["contact_person"],
+                optional["telephone"],
+                optional["product_categories_json"],
+                optional["product_groups_json"],
                 utc_now(),
                 company_id,
             ),
@@ -407,8 +445,43 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
     else:
         hall = location.strip() or None
 
+    scraped_at = utc_now()
+    exhibitor_id = record.get("exh")
+    tags_json = json.dumps(tags)
+    event_icons_json = json.dumps(event_icons)
+
     with get_connection() as connection:
         cursor = connection.cursor()
+        existing = cursor.execute(
+            """
+            SELECT seo_id, hall, stand, location, premium,
+                   tags_json, event_icons_json
+            FROM exhibition_companies
+            WHERE exhibition_id = ? AND gifa_exhibitor_id = ?
+            """,
+            (exhibition_id, exhibitor_id),
+        ).fetchone()
+        duplicate = bool(
+            existing
+            and (
+                existing["seo_id"],
+                existing["hall"],
+                existing["stand"],
+                existing["location"],
+                existing["premium"],
+                existing["tags_json"],
+                existing["event_icons_json"],
+            )
+            == (
+                record.get("exhSeoId"),
+                hall,
+                stand,
+                location,
+                1 if record.get("premium") else 0,
+                tags_json,
+                event_icons_json,
+            )
+        )
 
         cursor.execute(
             """
@@ -457,20 +530,58 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
             (
                 company_id,
                 exhibition_id,
-                record.get("exh"),
+                exhibitor_id,
                 record.get("exhSeoId"),
                 hall,
                 stand,
                 location,
                 1 if record.get("premium") else 0,
-                __import__("json").dumps(tags),
-                __import__("json").dumps(event_icons),
-                utc_now(),
-                utc_now(),
-                utc_now(),
-                utc_now(),
+                tags_json,
+                event_icons_json,
+                scraped_at,
+                scraped_at,
+                scraped_at,
+                scraped_at,
             ),
         )
+
+    return {
+        "created": existing is None,
+        "updated": existing is not None and not duplicate,
+        "duplicate": duplicate,
+    }
+
+
+def extract_profile_fields(record):
+    """Extract optional public profile fields without requiring their presence."""
+
+    def first_value(*keys):
+        for key in keys:
+            value = record.get(key)
+            if value not in (None, ""):
+                return str(value)
+        return None
+
+    def json_value(*keys):
+        for key in keys:
+            value = record.get(key)
+            if value not in (None, ""):
+                return json.dumps(value) if not isinstance(value, str) else value
+        return None
+
+    return {
+        "email": first_value("email", "contactEmail", "companyEmail"),
+        "contact_person": first_value(
+            "contactPerson", "contact_person", "contactName"
+        ),
+        "telephone": first_value("telephone", "phone", "telephoneNumber"),
+        "product_categories_json": json_value(
+            "productCategories", "product_categories", "categories"
+        ),
+        "product_groups_json": json_value(
+            "productGroups", "product_groups", "groups"
+        ),
+    }
 
 
 def sync_exhibitor(record, exhibition_id):
@@ -503,7 +614,7 @@ def sync_exhibitor(record, exhibition_id):
         update_company(company_id, record)
         created = False
 
-    upsert_exhibition_company(
+    participation = upsert_exhibition_company(
         company_id=company_id,
         exhibition_id=exhibition_id,
         record=record,
@@ -512,4 +623,7 @@ def sync_exhibitor(record, exhibition_id):
     return {
         "company_id": company_id,
         "created": created,
+        "participation_created": participation["created"],
+        "participation_updated": participation["updated"],
+        "duplicate": participation["duplicate"],
     }
