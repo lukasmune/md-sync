@@ -14,7 +14,7 @@ switch ($Command) {
         python -c "from scraper import sync_gifa_2023; print(sync_gifa_2023())"
     }
     "export" {
-        python -c "from excel_export import export_database_to_excel; print(export_database_to_excel('exports/GIFA_Sales_Database_current.xlsx'))"
+        python -c "from excel_export import export_database_to_excel; print(export_database_to_excel('exports'))"
     }
     "check" {
         python -m compileall -q .

@@ -161,6 +161,8 @@ def initialize_database():
         }
         if "logo" in columns:
             cursor.execute("ALTER TABLE companies DROP COLUMN logo")
+        if "contact_person" in columns:
+            cursor.execute("ALTER TABLE companies DROP COLUMN contact_person")
 
         for column in ("first_seen_at", "last_seen_at", "changed_at"):
             try:
@@ -173,7 +175,6 @@ def initialize_database():
 
         for column in (
             "email",
-            "contact_person",
             "telephone",
             "product_categories_json",
             "product_groups_json",
@@ -377,14 +378,13 @@ def create_company(record):
                 normalized_city,
                 website,
                 email,
-                contact_person,
                 telephone,
                 product_categories_json,
                 product_groups_json,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -395,7 +395,6 @@ def create_company(record):
                 normalized_city,
                 website,
                 optional["email"],
-                optional["contact_person"],
                 optional["telephone"],
                 optional["product_categories_json"],
                 optional["product_groups_json"],
@@ -434,7 +433,6 @@ def update_company(company_id, record):
                 normalized_city = COALESCE(?, normalized_city),
                 website = COALESCE(?, website),
                 email = COALESCE(?, email),
-                contact_person = COALESCE(?, contact_person),
                 telephone = COALESCE(?, telephone),
                 product_categories_json = COALESCE(?, product_categories_json),
                 product_groups_json = COALESCE(?, product_groups_json),
@@ -450,7 +448,6 @@ def update_company(company_id, record):
                 normalize_city(city) if city is not None else None,
                 website,
                 optional["email"],
-                optional["contact_person"],
                 optional["telephone"],
                 optional["product_categories_json"],
                 optional["product_groups_json"],
@@ -698,9 +695,6 @@ def extract_profile_fields(record):
 
     return {
         "email": first_value("email", "contactEmail", "companyEmail"),
-        "contact_person": first_value(
-            "contactPerson", "contact_person", "contactName"
-        ),
         "telephone": first_value("telephone", "phone", "telephoneNumber"),
         "product_categories_json": json_value(
             "productCategories", "product_categories", "categories"

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sqlite3
 
 from openpyxl import Workbook
@@ -82,14 +83,13 @@ def export_exhibition_to_excel(
                 c.created_at AS company_created_at,
             c.updated_at AS company_updated_at,
             c.email,
-            c.contact_person,
             c.telephone,
             c.product_categories_json,
             c.product_groups_json,
                 e.event_name,
                 e.edition,
                 e.event_code,
-                ec.gifa_exhibitor_id,
+                ec.gifa_exhibitor_id AS exhibitor_id,
                 ec.seo_id AS exh_seo_id,
             ec.hall,
             ec.stand,
@@ -164,85 +164,45 @@ def export_exhibition_to_excel(
     return output_path
 
 
-def export_database_to_excel(output_path):
-    """Export all GIFA editions in the local database for sales analysis."""
+def export_event(event_name, edition, output_dir="exports"):
+    """Export exactly one event edition using a deterministic filename."""
+
+    output_directory = Path(output_dir)
+    output_directory.mkdir(parents=True, exist_ok=True)
+    safe_event_name = re.sub(
+        r"[^A-Za-z0-9_-]+", "_", str(event_name)
+    ).strip("_")
+    output_path = output_directory / f"{safe_event_name}_{edition}.xlsx"
+    return export_exhibition_to_excel(event_name, edition, output_path)
+
+
+def export_database_to_excel(output_path="exports"):
+    """Export every stored event edition as a separate workbook."""
 
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_directory = (
+        output_path.parent if output_path.suffix else output_path
+    )
+    output_directory.mkdir(parents=True, exist_ok=True)
     database.initialize_database()
 
     with get_connection() as connection:
-        records = connection.execute(
+        exhibitions = connection.execute(
             """
-            SELECT c.id AS company_id, c.name AS company_name, c.country,
-                c.city, c.website,
-                c.created_at AS company_created_at,
-                c.updated_at AS company_updated_at,
-                c.email, c.contact_person, c.telephone,
-                e.event_name, e.edition, e.event_code,
-                ec.gifa_exhibitor_id, ec.seo_id AS exh_seo_id,
-                ec.hall, ec.stand, ec.location, ec.premium, ec.tags_json,
-                COALESCE((
-                    SELECT group_concat(label, '; ')
-                    FROM (
-                        SELECT DISTINCT pc.label
-                        FROM exhibition_company_categories ecc
-                        JOIN product_categories pc
-                            ON pc.id = ecc.product_category_id
-                        WHERE ecc.exhibition_company_id = ec.id
-                        ORDER BY pc.label
-                    )
-                ), '') AS product_categories,
-                COALESCE((
-                    SELECT group_concat(label, '; ')
-                    FROM (
-                        SELECT DISTINCT pg.label
-                        FROM exhibition_company_categories ecc
-                        JOIN product_category_groups pcg
-                            ON pcg.product_category_id = ecc.product_category_id
-                        JOIN product_groups pg
-                            ON pg.id = pcg.product_group_id
-                        WHERE ecc.exhibition_company_id = ec.id
-                        ORDER BY pcg.position, pg.label
-                    )
-                ), '') AS product_groups,
-                ec.first_seen_at, ec.last_seen_at, ec.changed_at
-            FROM exhibition_companies ec
-            JOIN companies c ON c.id = ec.company_id
-            JOIN exhibitions e ON e.id = ec.exhibition_id
-            ORDER BY e.edition, c.name COLLATE NOCASE
+            SELECT event_name, edition
+            FROM exhibitions
+            ORDER BY event_name COLLATE NOCASE, edition
             """
         ).fetchall()
 
-        companies = connection.execute(
-            """
-            SELECT DISTINCT c.id AS company_id, c.name AS company_name,
-                c.country, c.city, c.website,
-                c.created_at, c.updated_at
-            FROM companies c
-            JOIN exhibition_companies ec ON ec.company_id = c.id
-            ORDER BY c.name COLLATE NOCASE
-            """
-        ).fetchall()
-
-    if not records:
-        raise ValueError("No exhibitor records found in the database.")
-
-    workbook = Workbook()
-    summary_sheet = workbook.active
-    summary_sheet.title = "Summary"
-    companies_sheet = workbook.create_sheet("Company Master")
-    records_sheet = workbook.create_sheet("Sales Leads")
-    summary = {
-        "event_name": "GIFA",
-        "edition": "All editions",
-        "event_code": "Multiple editions",
-    }
-    _build_summary_sheet(summary_sheet, summary, companies, records)
-    _build_companies_sheet(companies_sheet, companies)
-    _build_records_sheet(records_sheet, records)
-    workbook.save(output_path)
-    return output_path
+    return [
+        export_event(
+            exhibition["event_name"],
+            exhibition["edition"],
+            output_directory,
+        )
+        for exhibition in exhibitions
+    ]
 
 
 def _build_summary_sheet(
@@ -330,16 +290,14 @@ def _build_records_sheet(
         "Event",
         "Edition",
         "Event Code",
-        "GIFA Exhibitor ID",
+        "Exhibitor ID",
         "Exhibition SEO ID",
         "Hall",
         "Stand",
         "Location",
         "Premium",
-        "Lead Status",
         "Tags",
         "Email",
-        "Contact Person",
         "Telephone",
         "Product Categories",
         "Product Groups",
@@ -363,16 +321,14 @@ def _build_records_sheet(
                 record["event_name"],
                 record["edition"],
                 record["event_code"],
-                record["gifa_exhibitor_id"],
+                record["exhibitor_id"],
                 record["exh_seo_id"],
                 record["hall"],
                 record["stand"],
                 record["location"],
                 bool(record["premium"]),
-                _lead_status(record),
                 record["tags_json"],
                 record["email"],
-                record["contact_person"],
                 record["telephone"],
                 record["product_categories"],
                 record["product_groups"],
@@ -386,16 +342,6 @@ def _build_records_sheet(
         worksheet,
         table_name="ParticipationHistoryTable",
     )
-
-
-def _lead_status(record):
-    if record["changed_at"] is None:
-        return "Existing"
-    if record["first_seen_at"] == record["changed_at"]:
-        return "New this edition"
-    if record["changed_at"] and record["changed_at"] != record["first_seen_at"]:
-        return "Updated"
-    return "Existing"
 
 
 def _format_data_sheet(
@@ -464,10 +410,5 @@ def _format_data_sheet(
 
 
 if __name__ == "__main__":
-    output_file = Path("exports") / "GIFA_Sales_Database.xlsx"
-
-    export_database_to_excel(output_file)
-
-    print(
-        f"Excel export created: {output_file}"
-    )
+    for output_file in export_database_to_excel("exports"):
+        print(f"Excel export created: {output_file}")

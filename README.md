@@ -23,7 +23,7 @@ The application currently:
 
 The directory payload currently exposes company name, country, city, location,
 tags, premium status, event icons, exhibitor ID, and SEO ID. A live sample did not
-contain email, contact person, telephone, website, or product classification fields.
+contain email, telephone, website, or product classification fields.
 The directory response does not contain these fields. The configured scraper
 enriches each selected exhibitor through the VIS profile endpoint described below.
 
@@ -136,7 +136,7 @@ The code currently relies on fields such as:
 - `eventIcons`
 
 The code uses `eventIcons` to match a target event label such as `"GIFA 2023"` and stores the raw `tags` and `eventIcons` data as JSON in the database.
-Optional profile values (`email`, `contact_person`, `telephone`, product categories,
+Optional profile values (`email`, `telephone`, product categories,
 and product groups) are extracted when present in a response, but none were present
 in the sampled directory payload. Company `created_at` is preserved as the first
 discovery time, while `updated_at` changes on later observations. Participation
@@ -149,8 +149,7 @@ The application currently identifies an exhibitor record via the `exh` field in 
 
 The directory response does not contain contact or product fields. Profile
 enrichment currently provides email, telephone, website, and structured product
-categories where the profile publishes them. The sampled profile did not provide
-a contact-person name; missing values remain empty.
+categories where the profile publishes them.
 
 ## Database
 
@@ -183,7 +182,7 @@ The schema created by `initialize_database()` currently contains:
 - `country` and `normalized_country`
 - `city` and `normalized_city`
 - `website`
-- `email`, `contact_person`, and `telephone` (when available)
+- `email` and `telephone` (when available)
 - legacy optional profile JSON columns retained for compatibility
 - `created_at`
 - `updated_at`
@@ -381,13 +380,22 @@ The PowerShell helper script [gifa.ps1](./gifa.ps1) also supports:
 
 ### Run exports
 
-The export command in the script and implementation uses:
+To export one specific event edition:
 
 ```bash
-python -c "from excel_export import export_database_to_excel; print(export_database_to_excel('exports/GIFA_Sales_Database_current.xlsx'))"
+python -c "from excel_export import export_event; print(export_event('GIFA', 2023))"
 ```
 
-The export code reads the SQLite data and creates workbook sheets with summary, company master, and participation records.
+This creates `exports/GIFA_2023.xlsx`. To export every edition currently stored
+in SQLite as separate workbooks, use:
+
+```bash
+python -c "from excel_export import export_database_to_excel; print(export_database_to_excel('exports'))"
+```
+
+Each workbook contains only the selected event edition, with summary, company
+master, and participation records sheets. Product categories and groups are
+limited to each exhibition participation.
 
 ## Testing
 
@@ -436,30 +444,23 @@ Current actual result: 20 passed in 95.67s.
 
 The codebase contains a number of real limitations that are visible in the implementation:
 
-- Contact emails are not currently extracted from a detail page or profile endpoint.
-- Product/category extraction is not implemented in the current directory API workflow.
-- Individual exhibitor profile/detail retrieval is not currently performed.
 - The project stores a few timestamp fields (`first_seen_at`, `last_seen_at`, `changed_at`) but does not maintain a full historical change log.
 - There is no clear, reliable company-level `first_seen_at` / `last_seen_at` calculation for all companies across editions.
 - The system does not currently compute which companies are new since a previous synchronization in an explicit, queryable way.
-- The project is strongly configured for GIFA; multi-fair support is not yet fully generalized in the active configuration.
+- The active event configuration contains the currently supported fairs and editions; future editions must be added as they are published.
 - The identity matching rules are based on normalized name/country/city and are not a richer semantic matching system.
-- API error handling is minimal and based on `raise_for_status()` plus straightforward requests.
-- There is no explicit retry policy or rate limiting logic.
-- Logging is minimal and not structured around application events, retries, or failures.
-- Excel export is functional but is a reporting/export layer rather than a true data pipeline.
-- The project currently does not validate the completeness or quality of fields beyond simple matching and update rules.
+- API retries are bounded and specifically handle rate limiting responses.
+- Excel export is a reporting/export layer rather than a true data pipeline.
 
 ## Future Development Considerations
 
 The next logical areas suggested by the current code are:
 
 - Expand the API layer beyond the directory listing to cover exhibitor detail pages if available.
-- Add richer field extraction for contacts, products, websites, and other useful sales metadata.
 - Add future-edition entries to the central event configuration as Messe Düsseldorf publishes them.
 - Strengthen change tracking and historical visibility without introducing a full audit schema prematurely.
 - Improve duplicate matching and company identity heuristics where name/country/city comparisons are insufficient.
-- Add more robust error handling, retries, and logging around network calls and database writes.
+- Add more structured logging around network calls and database writes.
 - Consider a deliberate strategy for detecting new companies, missing records, and historical appearances across multiple sync runs.
 
 ## Summary
