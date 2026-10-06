@@ -21,12 +21,11 @@ The application currently:
 - Provides an Excel export of exhibition/company data.
 - Includes tests that hit the live API and validate the database synchronization logic.
 
-The directory payload currently exposes company name, country, city, logo, location,
+The directory payload currently exposes company name, country, city, location,
 tags, premium status, event icons, exhibitor ID, and SEO ID. A live sample did not
 contain email, contact person, telephone, website, or product classification fields.
-The sampled profile route returned HTML/`406 Not Acceptable`, so no second profile
-request is enabled by default. The database accepts those optional fields when a
-future profile response provides them.
+The directory response does not contain these fields. The configured scraper
+enriches each selected exhibitor through the VIS profile endpoint described below.
 
 ## Architecture
 
@@ -135,7 +134,6 @@ The code currently relies on fields such as:
 - `premium`
 - `tags`
 - `eventIcons`
-- `logo`
 
 The code uses `eventIcons` to match a target event label such as `"GIFA 2023"` and stores the raw `tags` and `eventIcons` data as JSON in the database.
 Optional profile values (`email`, `contact_person`, `telephone`, product categories,
@@ -149,11 +147,10 @@ observation.
 
 The application currently identifies an exhibitor record via the `exh` field in the exhibition-specific participation table, not by a separate stable exhibitor-profile ID across all exhibitions. A company is identified by normalized name plus optional country and city using `find_company(...)`.
 
-The project does not currently access a usable separate exhibitor-detail endpoint
-for contact email addresses, product categories, phone numbers, or contact persons.
-The live directory sample contained no such fields, and the sampled profile route
-returned HTML/`406 Not Acceptable`. Optional fields are stored if supplied by a
-future profile response.
+The directory response does not contain contact or product fields. Profile
+enrichment currently provides email, telephone, website, and structured product
+categories where the profile publishes them. The sampled profile did not provide
+a contact-person name; missing values remain empty.
 
 ## Database
 
@@ -173,6 +170,10 @@ The schema created by `initialize_database()` currently contains:
 - `companies`
 - `exhibitions`
 - `exhibition_companies`
+- `product_categories`
+- `product_groups`
+- `exhibition_company_categories`
+- `product_category_groups`
 - `gifa_sync_metadata`
 
 `companies` includes:
@@ -182,11 +183,18 @@ The schema created by `initialize_database()` currently contains:
 - `country` and `normalized_country`
 - `city` and `normalized_city`
 - `website`
-- `logo`
 - `email`, `contact_person`, and `telephone` (when available)
-- `product_categories_json` and `product_groups_json` (when available)
+- legacy optional profile JSON columns retained for compatibility
 - `created_at`
 - `updated_at`
+
+Product categories are retrieved from the profile enrichment endpoint:
+`https://finder.messe-duesseldorf.de/vis-api/vis/v1/en/exhibitors/{exh}/slices/profile`.
+The response contains `categories[]` entries with `id`, `label`, `catalogIndex`,
+`hierarchy[]`, and optional `productList[]`. The hierarchy is stored as normalized
+product groups and category associations are tied to the exhibition participation,
+not globally to the company. The old company `logo` column is removed during
+database initialization; existing non-logo data is preserved.
 
 Indexes include:
 

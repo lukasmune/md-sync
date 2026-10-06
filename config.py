@@ -12,10 +12,13 @@ GIFA_BASE_URL = (
     "https://widgets.messe-duesseldorf.de/vis-api/vis/v1/en/directory"
 )
 GIFA_DOMAIN = "www.gifa.com"
+FINDER_BASE_URL = "https://finder.messe-duesseldorf.de/vis-api/vis/v1"
 
 GIFA_EVENT_ID = "GMTN2023.gifa"
 
 REQUEST_TIMEOUT = 30
+PROFILE_REQUEST_RETRIES = 4
+PROFILE_REQUEST_DELAY = 0.25
 
 DIRECTORY_LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
@@ -29,6 +32,7 @@ EVENTS = {
         "event_code": GIFA_EVENT_ID,
         "event_label": "GIFA 2023",
         "edition": 2023,
+        "enrich_profiles": True,
     },
     "METEC": {
         "base_url": GIFA_BASE_URL,
@@ -36,6 +40,7 @@ EVENTS = {
         "event_code": "GMTN2023.metec",
         "event_label": "METEC 2023",
         "edition": 2023,
+        "enrich_profiles": True,
     },
     "THERMPROCESS": {
         "base_url": GIFA_BASE_URL,
@@ -43,6 +48,7 @@ EVENTS = {
         "event_code": "GMTN2023.thermpro",
         "event_label": "THERMPROCESS 2023",
         "edition": 2023,
+        "enrich_profiles": True,
     },
     "NEWCAST": {
         "base_url": GIFA_BASE_URL,
@@ -50,5 +56,6 @@ EVENTS = {
         "event_code": "GMTN2023.newcast",
         "event_label": "NEWCAST 2023",
         "edition": 2023,
+        "enrich_profiles": True,
     },
 }

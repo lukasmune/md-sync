@@ -60,7 +60,6 @@ def export_exhibition_to_excel(
                 c.country,
                 c.city,
                 c.website,
-                c.logo,
                 c.created_at,
                 c.updated_at
             FROM companies c
@@ -79,9 +78,8 @@ def export_exhibition_to_excel(
                 c.name AS company_name,
                 c.country,
                 c.city,
-            c.website,
-            c.logo,
-            c.created_at AS company_created_at,
+                c.website,
+                c.created_at AS company_created_at,
             c.updated_at AS company_updated_at,
             c.email,
             c.contact_person,
@@ -98,6 +96,30 @@ def export_exhibition_to_excel(
                 ec.location,
             ec.premium,
             ec.tags_json,
+            COALESCE((
+                SELECT group_concat(label, '; ')
+                FROM (
+                    SELECT DISTINCT pc.label
+                    FROM exhibition_company_categories ecc
+                    JOIN product_categories pc
+                        ON pc.id = ecc.product_category_id
+                    WHERE ecc.exhibition_company_id = ec.id
+                    ORDER BY pc.label
+                )
+            ), '') AS product_categories,
+            COALESCE((
+                SELECT group_concat(label, '; ')
+                FROM (
+                    SELECT DISTINCT pg.label
+                    FROM exhibition_company_categories ecc
+                    JOIN product_category_groups pcg
+                        ON pcg.product_category_id = ecc.product_category_id
+                    JOIN product_groups pg
+                        ON pg.id = pcg.product_group_id
+                    WHERE ecc.exhibition_company_id = ec.id
+                    ORDER BY pcg.position, pg.label
+                )
+            ), '') AS product_groups,
             ec.first_seen_at,
             ec.last_seen_at,
             ec.changed_at
@@ -153,14 +175,37 @@ def export_database_to_excel(output_path):
         records = connection.execute(
             """
             SELECT c.id AS company_id, c.name AS company_name, c.country,
-                c.city, c.website, c.logo,
+                c.city, c.website,
                 c.created_at AS company_created_at,
                 c.updated_at AS company_updated_at,
                 c.email, c.contact_person, c.telephone,
-                c.product_categories_json, c.product_groups_json,
                 e.event_name, e.edition, e.event_code,
                 ec.gifa_exhibitor_id, ec.seo_id AS exh_seo_id,
                 ec.hall, ec.stand, ec.location, ec.premium, ec.tags_json,
+                COALESCE((
+                    SELECT group_concat(label, '; ')
+                    FROM (
+                        SELECT DISTINCT pc.label
+                        FROM exhibition_company_categories ecc
+                        JOIN product_categories pc
+                            ON pc.id = ecc.product_category_id
+                        WHERE ecc.exhibition_company_id = ec.id
+                        ORDER BY pc.label
+                    )
+                ), '') AS product_categories,
+                COALESCE((
+                    SELECT group_concat(label, '; ')
+                    FROM (
+                        SELECT DISTINCT pg.label
+                        FROM exhibition_company_categories ecc
+                        JOIN product_category_groups pcg
+                            ON pcg.product_category_id = ecc.product_category_id
+                        JOIN product_groups pg
+                            ON pg.id = pcg.product_group_id
+                        WHERE ecc.exhibition_company_id = ec.id
+                        ORDER BY pcg.position, pg.label
+                    )
+                ), '') AS product_groups,
                 ec.first_seen_at, ec.last_seen_at, ec.changed_at
             FROM exhibition_companies ec
             JOIN companies c ON c.id = ec.company_id
@@ -172,7 +217,7 @@ def export_database_to_excel(output_path):
         companies = connection.execute(
             """
             SELECT DISTINCT c.id AS company_id, c.name AS company_name,
-                c.country, c.city, c.website, c.logo,
+                c.country, c.city, c.website,
                 c.created_at, c.updated_at
             FROM companies c
             JOIN exhibition_companies ec ON ec.company_id = c.id
@@ -243,7 +288,7 @@ def _build_companies_sheet(
     """Build the companies worksheet."""
 
     headers = [
-        "Company ID", "Company Name", "Country", "City", "Website", "Logo",
+        "Company ID", "Company Name", "Country", "City", "Website",
         "Created At", "Updated At",
     ]
 
@@ -257,7 +302,6 @@ def _build_companies_sheet(
                 company["country"],
                 company["city"],
                 company["website"],
-                company["logo"],
                 company["created_at"],
                 company["updated_at"],
             ]
@@ -281,7 +325,6 @@ def _build_records_sheet(
         "Country",
         "City",
         "Website",
-        "Logo",
         "Company Created At",
         "Company Updated At",
         "Event",
@@ -315,7 +358,6 @@ def _build_records_sheet(
                 record["country"],
                 record["city"],
                 record["website"],
-                record["logo"],
                 record["company_created_at"],
                 record["company_updated_at"],
                 record["event_name"],
@@ -332,8 +374,8 @@ def _build_records_sheet(
                 record["email"],
                 record["contact_person"],
                 record["telephone"],
-                record["product_categories_json"],
-                record["product_groups_json"],
+                record["product_categories"],
+                record["product_groups"],
                 record["first_seen_at"],
                 record["last_seen_at"],
                 record["changed_at"],

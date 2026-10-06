@@ -64,12 +64,6 @@ def test_gifa_2023_directory():
         if record.get("country")
     }
 
-    with_logo = sum(
-        1
-        for record in unique_records.values()
-        if record.get("logo")
-    )
-
     premium = sum(
         1
         for record in unique_records.values()
@@ -87,7 +81,6 @@ def test_gifa_2023_directory():
     print(f"GIFA 2023 records:      {len(gifa_records)}")
     print(f"Unique GIFA exhibitors: {len(unique_records)}")
     print(f"Countries:              {len(countries)}")
-    print(f"With logo:              {with_logo}")
     print(f"Premium:                {premium}")
     print(f"Missing location:       {missing_location}")
 

@@ -56,7 +56,6 @@ def initialize_database():
                 normalized_city TEXT,
 
                 website TEXT,
-                logo TEXT,
 
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -117,8 +116,51 @@ def initialize_database():
 
             CREATE INDEX IF NOT EXISTS idx_exhibition_companies_gifa_id
                 ON exhibition_companies(gifa_exhibitor_id);
+
+            CREATE TABLE IF NOT EXISTS product_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                catalog_index TEXT,
+                hierarchy_json TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS product_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                level INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS exhibition_company_categories (
+                exhibition_company_id INTEGER NOT NULL,
+                product_category_id INTEGER NOT NULL,
+                PRIMARY KEY (exhibition_company_id, product_category_id),
+                FOREIGN KEY (exhibition_company_id)
+                    REFERENCES exhibition_companies(id),
+                FOREIGN KEY (product_category_id)
+                    REFERENCES product_categories(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS product_category_groups (
+                product_category_id INTEGER NOT NULL,
+                product_group_id INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY (product_category_id, product_group_id),
+                FOREIGN KEY (product_category_id)
+                    REFERENCES product_categories(id),
+                FOREIGN KEY (product_group_id)
+                    REFERENCES product_groups(id)
+            );
             """
         )
+
+        columns = {
+            row["name"]
+            for row in cursor.execute("PRAGMA table_info(companies)")
+        }
+        if "logo" in columns:
+            cursor.execute("ALTER TABLE companies DROP COLUMN logo")
 
         for column in ("first_seen_at", "last_seen_at", "changed_at"):
             try:
@@ -313,7 +355,6 @@ def create_company(record):
     country = record.get("country")
     city = record.get("city")
     website = record.get("website")
-    logo = record.get("logo")
     optional = extract_profile_fields(record)
 
     normalized_name = normalize_company_name(name)
@@ -335,7 +376,6 @@ def create_company(record):
                 city,
                 normalized_city,
                 website,
-                logo,
                 email,
                 contact_person,
                 telephone,
@@ -344,7 +384,7 @@ def create_company(record):
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -354,7 +394,6 @@ def create_company(record):
                 city,
                 normalized_city,
                 website,
-                logo,
                 optional["email"],
                 optional["contact_person"],
                 optional["telephone"],
@@ -378,7 +417,6 @@ def update_company(company_id, record):
     country = record.get("country")
     city = record.get("city")
     website = record.get("website")
-    logo = record.get("logo")
     optional = extract_profile_fields(record)
 
     with get_connection() as connection:
@@ -395,7 +433,6 @@ def update_company(company_id, record):
                 city = COALESCE(?, city),
                 normalized_city = COALESCE(?, normalized_city),
                 website = COALESCE(?, website),
-                logo = COALESCE(?, logo),
                 email = COALESCE(?, email),
                 contact_person = COALESCE(?, contact_person),
                 telephone = COALESCE(?, telephone),
@@ -412,7 +449,6 @@ def update_company(company_id, record):
                 city,
                 normalize_city(city) if city is not None else None,
                 website,
-                logo,
                 optional["email"],
                 optional["contact_person"],
                 optional["telephone"],
@@ -552,6 +588,97 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
     }
 
 
+def sync_product_categories(exhibition_id, exhibitor_id, categories):
+    """Upsert structured categories and their hierarchy for one appearance."""
+
+    if not categories:
+        return
+
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        participation = cursor.execute(
+            """
+            SELECT id
+            FROM exhibition_companies
+            WHERE exhibition_id = ? AND gifa_exhibitor_id = ?
+            """,
+            (exhibition_id, exhibitor_id),
+        ).fetchone()
+        if participation is None:
+            raise ValueError(
+                "Cannot store product categories without an exhibition record."
+            )
+
+        for category in categories:
+            if not isinstance(category, dict):
+                continue
+            source_id = category.get("id")
+            label = category.get("label")
+            if not source_id or not label:
+                continue
+            hierarchy = category.get("hierarchy") or []
+            cursor.execute(
+                """
+                INSERT INTO product_categories (
+                    source_id, label, catalog_index, hierarchy_json
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    label = excluded.label,
+                    catalog_index = excluded.catalog_index,
+                    hierarchy_json = excluded.hierarchy_json
+                """,
+                (
+                    source_id,
+                    label,
+                    category.get("catalogIndex"),
+                    json.dumps(hierarchy),
+                ),
+            )
+            category_id = cursor.execute(
+                "SELECT id FROM product_categories WHERE source_id = ?",
+                (source_id,),
+            ).fetchone()["id"]
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO exhibition_company_categories
+                    (exhibition_company_id, product_category_id)
+                VALUES (?, ?)
+                """,
+                (participation["id"], category_id),
+            )
+
+            for position, group in enumerate(hierarchy):
+                if not isinstance(group, dict):
+                    continue
+                group_id = group.get("id")
+                group_label = group.get("label")
+                if not group_id or not group_label:
+                    continue
+                cursor.execute(
+                    """
+                    INSERT INTO product_groups (source_id, label, level)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(source_id) DO UPDATE SET
+                        label = excluded.label,
+                        level = excluded.level
+                    """,
+                    (group_id, group_label, position),
+                )
+                product_group_id = cursor.execute(
+                    "SELECT id FROM product_groups WHERE source_id = ?",
+                    (group_id,),
+                ).fetchone()["id"]
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO product_category_groups
+                        (product_category_id, product_group_id, position)
+                    VALUES (?, ?, ?)
+                    """,
+                    (category_id, product_group_id, position),
+                )
+
+
 def extract_profile_fields(record):
     """Extract optional public profile fields without requiring their presence."""
 
@@ -618,6 +745,12 @@ def sync_exhibitor(record, exhibition_id):
         company_id=company_id,
         exhibition_id=exhibition_id,
         record=record,
+    )
+    sync_product_categories(
+        exhibition_id=exhibition_id,
+        exhibitor_id=record.get("exh"),
+        categories=record.get("categories")
+        or record.get("productCategories"),
     )
 
     return {

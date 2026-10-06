@@ -1,9 +1,13 @@
 import requests
 import sys
+import time
 
 from config import (
     DIRECTORY_LETTERS,
     EVENTS,
+    FINDER_BASE_URL,
+    PROFILE_REQUEST_DELAY,
+    PROFILE_REQUEST_RETRIES,
     GIFA_BASE_URL,
     GIFA_DOMAIN,
     GIFA_EVENT_ID,
@@ -70,14 +74,83 @@ def fetch_exhibitors_by_event(event_label, event_config=None):
         else:
             records = fetch_directory_letter(letter, event_config)
 
-        exhibitors.extend(
-            filter_exhibitors_by_event(
-                records,
-                event_label,
-            )
-        )
+        matching = filter_exhibitors_by_event(records, event_label)
+        if event_config and event_config.get("enrich_profiles"):
+            matching = [
+                enrich_exhibitor_record(record, event_config)
+                for record in matching
+            ]
+        exhibitors.extend(matching)
 
     return exhibitors
+
+
+def fetch_exhibitor_profile(exhibitor_id, event_config):
+    """Fetch the structured VIS profile for one exhibitor appearance."""
+
+    url = (
+        f"{FINDER_BASE_URL}/en/exhibitors/"
+        f"{exhibitor_id}/slices/profile"
+    )
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0",
+        "X-Vis-Domain": event_config["domain"],
+    }
+    for attempt in range(PROFILE_REQUEST_RETRIES + 1):
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=REQUEST_TIMEOUT,
+        )
+        if response.status_code != 429:
+            response.raise_for_status()
+            return response.json()
+
+        if attempt == PROFILE_REQUEST_RETRIES:
+            response.raise_for_status()
+
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = max(float(retry_after), PROFILE_REQUEST_DELAY)
+        except (TypeError, ValueError):
+            delay = PROFILE_REQUEST_DELAY * (2 ** attempt)
+        time.sleep(delay)
+
+    raise RuntimeError("Profile request retry loop completed unexpectedly.")
+
+
+def enrich_exhibitor_record(record, event_config):
+    """Merge profile data, including structured product categories, into a record."""
+
+    exhibitor_id = record.get("exh")
+    if not exhibitor_id:
+        return record
+
+    profile = fetch_exhibitor_profile(exhibitor_id, event_config)
+    enriched = dict(record)
+    enriched.update(
+        {
+            "email": profile.get("email") or profile.get("getInTouchEmail"),
+            "telephone": (profile.get("phone") or {}).get("phone"),
+            "website": next(
+                (
+                    link.get("link")
+                    for link in profile.get("links", [])
+                    if link.get("link")
+                ),
+                None,
+            ),
+            "categories": profile.get("categories", []),
+        }
+    )
+    address = profile.get("profileAddress") or {}
+    for source, target in (("city", "city"), ("country", "country")):
+        if address.get(source):
+            enriched[target] = address[source]
+    if profile.get("name"):
+        enriched["name"] = profile["name"]
+    return enriched
 
 
 def fetch_gifa_2023_exhibitors():
