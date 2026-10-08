@@ -26,7 +26,7 @@ def test_gifa_2023_sync_populates_database(tmp_path, monkeypatch):
 
         gifa_id_count = connection.execute(
             """
-            SELECT COUNT(DISTINCT gifa_exhibitor_id)
+            SELECT COUNT(DISTINCT source_exhibitor_id)
             FROM exhibition_companies
             """
         ).fetchone()[0]

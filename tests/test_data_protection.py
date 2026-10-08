@@ -1,4 +1,4 @@
-from sync import merge_gifa_data
+from sync import merge_external_data
 
 
 def test_gifa_update_does_not_overwrite_internal_sales_data():
@@ -20,7 +20,7 @@ def test_gifa_update_does_not_overwrite_internal_sales_data():
         "sales_notes": "No interest",
     }
 
-    updated_company = merge_gifa_data(
+    updated_company = merge_external_data(
         existing_company,
         gifa_update,
     )
@@ -47,7 +47,7 @@ def test_gifa_empty_values_do_not_overwrite_internal_sales_data():
         "sales_notes": None,
     }
 
-    updated_company = merge_gifa_data(
+    updated_company = merge_external_data(
         existing_company,
         gifa_update,
     )
@@ -70,7 +70,7 @@ def test_missing_gifa_fields_do_not_remove_internal_sales_data():
         "country": "Germany",
     }
 
-    updated_company = merge_gifa_data(
+    updated_company = merge_external_data(
         existing_company,
         gifa_update,
     )

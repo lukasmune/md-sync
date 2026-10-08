@@ -212,3 +212,58 @@ def test_existing_logo_column_is_removed_without_losing_company_data(
     assert "contact_person" not in columns
     assert company["name"] == "Legacy Co"
     assert company["website"] == "https://legacy.test"
+
+
+def test_external_sync_preserves_internal_sales_fields(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(database, "DATA_DIR", tmp_path)
+    database.initialize_database()
+    exhibition_id = database.get_or_create_exhibition(
+        "GIFA", 2023, "GMTN2023.gifa"
+    )
+
+    database.sync_exhibitor(
+        {
+            "exh": "EXH-1",
+            "name": "Example Foundry GmbH",
+            "country": "Germany",
+        },
+        exhibition_id,
+    )
+
+    with database.get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE companies
+            SET sales_status = ?, sales_owner = ?, sales_notes = ?
+            WHERE name = ?
+            """,
+            ("Qualified", "Lukas", "Keep this note", "Example Foundry GmbH"),
+        )
+
+    database.sync_exhibitor(
+        {
+            "exh": "EXH-1",
+            "name": "Example Foundry GmbH",
+            "country": "Germany",
+            "sales_status": "Cold",
+            "sales_owner": "External",
+            "sales_notes": "Overwrite attempt",
+        },
+        exhibition_id,
+    )
+
+    with database.get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT sales_status, sales_owner, sales_notes
+            FROM companies
+            WHERE name = ?
+            """,
+            ("Example Foundry GmbH",),
+        ).fetchone()
+
+    assert tuple(row) == ("Qualified", "Lukas", "Keep this note")

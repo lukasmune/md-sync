@@ -1,5 +1,5 @@
 # Fields owned by our internal sales team
-# GIFA synchronization must never create, modify, or delete these fields
+# External synchronization must never create, modify, or delete these fields.
 PROTECTED_FIELDS = {
     "sales_status",
     "sales_owner",
@@ -7,11 +7,15 @@ PROTECTED_FIELDS = {
 }
 
 
-def merge_gifa_data(existing_company, gifa_data):
+def merge_external_data(existing_company, external_data):
     updated_company = existing_company.copy()
 
-    for key, value in gifa_data.items():
+    for key, value in external_data.items():
         if key not in PROTECTED_FIELDS:
             updated_company[key] = value
 
     return updated_company
+
+
+# Compatibility alias for callers of the former application-specific helper.
+merge_gifa_data = merge_external_data

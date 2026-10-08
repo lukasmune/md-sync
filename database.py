@@ -3,7 +3,7 @@ import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from config import DATABASE_PATH, DATA_DIR
+from config import DATABASE_PATH, DATA_DIR, LEGACY_DATABASE_PATH
 from normalizer import (
     normalize_company_name,
     normalize_country,
@@ -18,6 +18,13 @@ def utc_now():
 @contextmanager
 def get_connection():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    if (
+        DATABASE_PATH == DATA_DIR / "md-sync.db"
+        and not DATABASE_PATH.exists()
+        and LEGACY_DATABASE_PATH.exists()
+    ):
+        LEGACY_DATABASE_PATH.replace(DATABASE_PATH)
 
     connection = sqlite3.connect(DATABASE_PATH)
 
@@ -85,7 +92,7 @@ def initialize_database():
                 company_id INTEGER NOT NULL,
                 exhibition_id INTEGER NOT NULL,
 
-                gifa_exhibitor_id TEXT,
+                source_exhibitor_id TEXT,
                 seo_id TEXT,
 
                 hall TEXT,
@@ -105,7 +112,7 @@ def initialize_database():
                 FOREIGN KEY (exhibition_id)
                     REFERENCES exhibitions(id),
 
-                UNIQUE(exhibition_id, gifa_exhibitor_id)
+                UNIQUE(exhibition_id, source_exhibitor_id)
             );
 
             CREATE INDEX IF NOT EXISTS idx_exhibition_companies_company
@@ -113,9 +120,6 @@ def initialize_database():
 
             CREATE INDEX IF NOT EXISTS idx_exhibition_companies_exhibition
                 ON exhibition_companies(exhibition_id);
-
-            CREATE INDEX IF NOT EXISTS idx_exhibition_companies_gifa_id
-                ON exhibition_companies(gifa_exhibitor_id);
 
             CREATE TABLE IF NOT EXISTS product_categories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,6 +159,30 @@ def initialize_database():
             """
         )
 
+        participation_columns = {
+            row["name"]
+            for row in cursor.execute(
+                "PRAGMA table_info(exhibition_companies)"
+            )
+        }
+        if (
+            "gifa_exhibitor_id" in participation_columns
+            and "source_exhibitor_id" not in participation_columns
+        ):
+            cursor.execute(
+                """
+                ALTER TABLE exhibition_companies
+                RENAME COLUMN gifa_exhibitor_id TO source_exhibitor_id
+                """
+            )
+
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_exhibition_companies_source_id
+                ON exhibition_companies(source_exhibitor_id)
+            """
+        )
+
         columns = {
             row["name"]
             for row in cursor.execute("PRAGMA table_info(companies)")
@@ -178,6 +206,9 @@ def initialize_database():
             "telephone",
             "product_categories_json",
             "product_groups_json",
+            "sales_status",
+            "sales_owner",
+            "sales_notes",
         ):
             try:
                 cursor.execute(
@@ -200,15 +231,33 @@ def initialize_database():
 
         cursor.execute(
             """
-            CREATE TABLE IF NOT EXISTS gifa_sync_metadata (
+            CREATE TABLE IF NOT EXISTS sync_metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             )
             """
         )
+        metadata_tables = {
+            row["name"]
+            for row in cursor.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                """
+            )
+        }
+        if "gifa_sync_metadata" in metadata_tables:
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO sync_metadata (key, value)
+                SELECT key, value FROM gifa_sync_metadata
+                """
+            )
+            cursor.execute("DROP TABLE gifa_sync_metadata")
         migration = cursor.execute(
             """
-            SELECT 1 FROM gifa_sync_metadata
+            SELECT 1 FROM sync_metadata
             WHERE key = 'change_tracking_initialized'
             """
         ).fetchone()
@@ -218,7 +267,7 @@ def initialize_database():
             )
             cursor.execute(
                 """
-                INSERT INTO gifa_sync_metadata (key, value)
+                INSERT INTO sync_metadata (key, value)
                 VALUES ('change_tracking_initialized', ?)
                 """,
                 (utc_now(),),
@@ -349,7 +398,7 @@ def find_company(name, country=None, city=None):
 
 def create_company(record):
     """
-    Create a new company from a GIFA API record.
+    Create a new company from an external source record.
     """
 
     name = record.get("name", "").strip()
@@ -490,7 +539,7 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
             SELECT seo_id, hall, stand, location, premium,
                    tags_json, event_icons_json
             FROM exhibition_companies
-            WHERE exhibition_id = ? AND gifa_exhibitor_id = ?
+            WHERE exhibition_id = ? AND source_exhibitor_id = ?
             """,
             (exhibition_id, exhibitor_id),
         ).fetchone()
@@ -521,7 +570,7 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
             INSERT INTO exhibition_companies (
                 company_id,
                 exhibition_id,
-                gifa_exhibitor_id,
+                source_exhibitor_id,
                 seo_id,
                 hall,
                 stand,
@@ -536,9 +585,9 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
-            ON CONFLICT(exhibition_id, gifa_exhibitor_id)
+            ON CONFLICT(exhibition_id, source_exhibitor_id)
             DO UPDATE SET
-                gifa_exhibitor_id = excluded.gifa_exhibitor_id,
+                source_exhibitor_id = excluded.source_exhibitor_id,
                 seo_id = excluded.seo_id,
                 hall = excluded.hall,
                 stand = excluded.stand,
@@ -597,7 +646,7 @@ def sync_product_categories(exhibition_id, exhibitor_id, categories):
             """
             SELECT id
             FROM exhibition_companies
-            WHERE exhibition_id = ? AND gifa_exhibitor_id = ?
+            WHERE exhibition_id = ? AND source_exhibitor_id = ?
             """,
             (exhibition_id, exhibitor_id),
         ).fetchone()
