@@ -213,7 +213,7 @@ def _build_summary_sheet(
 ):
     """Build the summary worksheet."""
 
-    worksheet["A1"] = "GIFA Sales Export"
+    worksheet["A1"] = "Messe Düsseldort Sales Export"
     worksheet["A1"].font = Font(
         bold=True,
         size=16,

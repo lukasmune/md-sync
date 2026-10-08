@@ -58,7 +58,7 @@ Relevant files and their roles:
 - [sync.py](./sync.py) — data merge helper that protects internal sales fields from overwriting.
 - [excel_export.py](./excel_export.py) — exports the SQLite data to Excel workbooks.
 - [inspect_duplicates.py](./inspect_duplicates.py) — quick inspection script that groups records by normalized company name to surface duplicates.
-- [gifa.ps1](./gifa.ps1) — Windows PowerShell script with short commands for tests, smoke API checks, sync, export, and code validation.
+- [gifa.ps1](./gifa.ps1) — Windows PowerShell script with short commands for tests, smoke API checks, all-event sync, export, and code validation.
 
 The four supported events are configured in `EVENTS` in [config.py](./config.py):
 GIFA, METEC, THERMPROCESS, and NEWCAST. They use one generic scraper pipeline and
