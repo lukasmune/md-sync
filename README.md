@@ -4,7 +4,7 @@
 
 ## Overview
 
-`md-sync` (Messe Düsseldorf Sync) is a Python-based synchronization tool for Messe Düsseldorf exhibitor data. It retrieves directory listings for GIFA, METEC, THERMPROCESS, and NEWCAST, resolves company identities across multiple exhibition editions, and stores the normalized result in a centralized local SQLite database. It also provides edition-specific Excel exports and a test suite.
+`md-sync` is a Python-based synchronization tool for Messe Düsseldorf exhibitor data. It retrieves directory listings for GIFA, METEC, THERMPROCESS, and NEWCAST, resolves company identities across multiple exhibition editions, and stores the normalized result in a centralized local SQLite database. It also provides edition-specific Excel exports and a test suite.
 
 The repository is not a generic production integration layer yet. The configuration and current execution path are strongly centered on GIFA 2023, although several functions are written generically enough to accept a different event label or edition.
 
