@@ -237,6 +237,33 @@ def initialize_database():
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS change_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                changed_at TEXT NOT NULL,
+                record_type TEXT NOT NULL,
+                company_id INTEGER NOT NULL,
+                exhibition_company_id INTEGER,
+                exhibition_id INTEGER,
+                field_name TEXT NOT NULL,
+                previous_value TEXT,
+                new_value TEXT,
+                is_new INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (company_id) REFERENCES companies(id),
+                FOREIGN KEY (exhibition_company_id)
+                    REFERENCES exhibition_companies(id),
+                FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id)
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_change_history_run
+                ON change_history(run_id)
+            """
+        )
         metadata_tables = {
             row["name"]
             for row in cursor.execute(
@@ -506,7 +533,148 @@ def update_company(company_id, record):
         )
 
 
-def upsert_exhibition_company(company_id, exhibition_id, record):
+def _json_for_history(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            return json.dumps(json.loads(value), sort_keys=True)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return value
+    return json.dumps(value, sort_keys=True)
+
+
+def _record_change(
+    connection,
+    run_id,
+    record_type,
+    company_id,
+    exhibition_company_id,
+    exhibition_id,
+    field_name,
+    previous_value,
+    new_value,
+    is_new=False,
+):
+    if previous_value == new_value and not is_new:
+        return
+    connection.execute(
+        """
+        INSERT INTO change_history (
+            run_id, changed_at, record_type, company_id,
+            exhibition_company_id, exhibition_id, field_name,
+            previous_value, new_value, is_new
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            utc_now(),
+            record_type,
+            company_id,
+            exhibition_company_id,
+            exhibition_id,
+            field_name,
+            previous_value,
+            new_value,
+            1 if is_new else 0,
+        ),
+    )
+
+
+def _company_changes(company, record):
+    optional = extract_profile_fields(record)
+    values = {
+        "name": record.get("name", "").strip(),
+        "country": record.get("country"),
+        "city": record.get("city"),
+        "website": record.get("website"),
+        "email": optional["email"],
+        "telephone": optional["telephone"],
+        "product_categories": optional["product_categories_json"],
+        "product_groups": optional["product_groups_json"],
+    }
+    stored = {
+        "name": company["name"],
+        "country": company["country"],
+        "city": company["city"],
+        "website": company["website"],
+        "email": company["email"],
+        "telephone": company["telephone"],
+        "product_categories": company["product_categories_json"],
+        "product_groups": company["product_groups_json"],
+    }
+    changes = []
+    for field_name, new_value in values.items():
+        if new_value is None and field_name != "name":
+            continue
+        old_value = stored[field_name]
+        compare_old = (
+            _json_for_history(old_value)
+            if field_name in {"product_categories", "product_groups"}
+            else old_value
+        )
+        compare_new = (
+            _json_for_history(new_value)
+            if field_name in {"product_categories", "product_groups"}
+            else new_value
+        )
+        if compare_old != compare_new:
+            changes.append((field_name, old_value, new_value))
+    return changes
+
+
+def _participation_changes(existing, record, categories):
+    location = record.get("location") or ""
+    if "/" in location:
+        hall, stand = [value.strip() for value in location.split("/", 1)]
+    else:
+        hall, stand = location.strip() or None, None
+    values = {
+        "exhibitor_id": record.get("exh"),
+        "seo_id": record.get("exhSeoId"),
+        "hall": hall,
+        "stand": stand,
+        "location": location,
+        "premium": 1 if record.get("premium") else 0,
+        "tags": json.dumps(record.get("tags", []), sort_keys=True),
+        "event_icons": json.dumps(record.get("eventIcons", []), sort_keys=True),
+    }
+    if categories is not None:
+        labels = sorted(
+            str(category.get("label"))
+            for category in categories
+            if isinstance(category, dict) and category.get("label")
+        )
+        groups = sorted(
+            str(group.get("label"))
+            for category in categories
+            if isinstance(category, dict)
+            for group in (category.get("hierarchy") or [])
+            if isinstance(group, dict) and group.get("label")
+        )
+        values["product_categories"] = json.dumps(labels)
+        values["product_groups"] = json.dumps(groups)
+    stored = {
+        "exhibitor_id": existing["source_exhibitor_id"],
+        "seo_id": existing["seo_id"],
+        "hall": existing["hall"],
+        "stand": existing["stand"],
+        "location": existing["location"],
+        "premium": existing["premium"],
+        "tags": _json_for_history(existing["tags_json"]),
+        "event_icons": _json_for_history(existing["event_icons_json"]),
+        "product_categories": existing["product_categories"],
+        "product_groups": existing["product_groups"],
+    }
+    return [
+        (field, stored[field], value)
+        for field, value in values.items()
+        if stored[field] != value
+    ]
+
+
+def upsert_exhibition_company(company_id, exhibition_id, record, categories=None):
     """
     Create or update the company's participation in an exhibition.
     """
@@ -536,13 +704,60 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
         cursor = connection.cursor()
         existing = cursor.execute(
             """
-            SELECT seo_id, hall, stand, location, premium,
-                   tags_json, event_icons_json
+            SELECT id, source_exhibitor_id, seo_id, hall, stand, location,
+                   premium, tags_json, event_icons_json
             FROM exhibition_companies
             WHERE exhibition_id = ? AND source_exhibitor_id = ?
             """,
             (exhibition_id, exhibitor_id),
         ).fetchone()
+        existing_data = dict(existing) if existing else None
+        if existing_data is not None:
+            existing_data["product_categories"] = json.dumps([
+                row["label"] for row in cursor.execute(
+                    """
+                    SELECT pc.label
+                    FROM exhibition_company_categories ecc
+                    JOIN product_categories pc
+                      ON pc.id = ecc.product_category_id
+                    WHERE ecc.exhibition_company_id = ?
+                    ORDER BY pc.label
+                    """,
+                    (existing["id"],),
+                )
+            ])
+            existing_data["product_groups"] = json.dumps([
+                row["label"] for row in cursor.execute(
+                    """
+                    SELECT DISTINCT pg.label
+                    FROM exhibition_company_categories ecc
+                    JOIN product_category_groups pcg
+                      ON pcg.product_category_id = ecc.product_category_id
+                    JOIN product_groups pg ON pg.id = pcg.product_group_id
+                    WHERE ecc.exhibition_company_id = ?
+                    ORDER BY pg.label
+                    """,
+                    (existing["id"],),
+                )
+            ])
+        category_values = None
+        if categories is not None:
+            labels = sorted(
+                str(category.get("label"))
+                for category in categories
+                if isinstance(category, dict) and category.get("label")
+            )
+            groups = sorted(
+                str(group.get("label"))
+                for category in categories
+                if isinstance(category, dict)
+                for group in (category.get("hierarchy") or [])
+                if isinstance(group, dict) and group.get("label")
+            )
+            category_values = {
+                "product_categories": json.dumps(labels),
+                "product_groups": json.dumps(groups),
+            }
         duplicate = bool(
             existing
             and (
@@ -564,6 +779,13 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
                 event_icons_json,
             )
         )
+        if duplicate and category_values is not None:
+            duplicate = (
+                existing_data["product_categories"]
+                == category_values["product_categories"]
+                and existing_data["product_groups"]
+                == category_values["product_groups"]
+            )
 
         cursor.execute(
             """
@@ -631,20 +853,22 @@ def upsert_exhibition_company(company_id, exhibition_id, record):
         "created": existing is None,
         "updated": existing is not None and not duplicate,
         "duplicate": duplicate,
+        "changes": (
+            _participation_changes(existing_data, record, categories)
+            if existing is not None and not duplicate
+            else []
+        ),
     }
 
 
 def sync_product_categories(exhibition_id, exhibitor_id, categories):
     """Upsert structured categories and their hierarchy for one appearance."""
 
-    if not categories:
-        return
-
     with get_connection() as connection:
         cursor = connection.cursor()
         participation = cursor.execute(
             """
-            SELECT id
+            SELECT id, company_id
             FROM exhibition_companies
             WHERE exhibition_id = ? AND source_exhibitor_id = ?
             """,
@@ -654,6 +878,16 @@ def sync_product_categories(exhibition_id, exhibitor_id, categories):
             raise ValueError(
                 "Cannot store product categories without an exhibition record."
             )
+
+        cursor.execute(
+            """
+            DELETE FROM exhibition_company_categories
+            WHERE exhibition_company_id = ?
+            """,
+            (participation["id"],),
+        )
+        if not categories:
+            return
 
         for category in categories:
             if not isinstance(category, dict):
@@ -754,7 +988,7 @@ def extract_profile_fields(record):
     }
 
 
-def sync_exhibitor(record, exhibition_id):
+def sync_exhibitor(record, exhibition_id, run_id=None):
     """
     Synchronize one scraped exhibitor.
 
@@ -781,6 +1015,7 @@ def sync_exhibitor(record, exhibition_id):
         created = True
     else:
         company_id = company["id"]
+        company_changes = _company_changes(company, record)
         update_company(company_id, record)
         created = False
 
@@ -788,12 +1023,54 @@ def sync_exhibitor(record, exhibition_id):
         company_id=company_id,
         exhibition_id=exhibition_id,
         record=record,
+        categories=record.get("categories") or record.get("productCategories"),
     )
+    categories = record.get("categories") or record.get("productCategories")
+    with get_connection() as connection:
+        current = connection.execute(
+            """
+            SELECT ec.*, e.event_name, e.edition
+            FROM exhibition_companies ec
+            JOIN exhibitions e ON e.id = ec.exhibition_id
+            WHERE ec.exhibition_id = ? AND ec.source_exhibitor_id = ?
+            """,
+            (exhibition_id, record.get("exh")),
+        ).fetchone()
+        if run_id:
+            if created:
+                _record_change(
+                    connection, run_id, "company", company_id, None,
+                    exhibition_id, "__new_record__", None, None, True
+                )
+            else:
+                for field_name, old_value, new_value in company_changes:
+                    _record_change(
+                        connection, run_id, "company", company_id, None,
+                        exhibition_id, field_name,
+                        _json_for_history(old_value)
+                        if field_name in {"product_categories", "product_groups"}
+                        else old_value,
+                        _json_for_history(new_value)
+                        if field_name in {"product_categories", "product_groups"}
+                        else new_value,
+                    )
+            if participation["created"]:
+                _record_change(
+                    connection, run_id, "participation", company_id,
+                    current["id"], exhibition_id, "__new_record__",
+                    None, None, True
+                )
+            elif not participation["duplicate"]:
+                for field_name, old_value, new_value in participation["changes"]:
+                    _record_change(
+                        connection, run_id, "participation", company_id,
+                        current["id"], exhibition_id, field_name,
+                        old_value, new_value,
+                    )
     sync_product_categories(
         exhibition_id=exhibition_id,
         exhibitor_id=record.get("exh"),
-        categories=record.get("categories")
-        or record.get("productCategories"),
+        categories=categories,
     )
 
     return {
@@ -803,3 +1080,36 @@ def sync_exhibitor(record, exhibition_id):
         "participation_updated": participation["updated"],
         "duplicate": participation["duplicate"],
     }
+
+
+def get_change_history(run_id):
+    """Return business changes recorded for one successful sync run."""
+
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT ch.*, c.name AS company_name, c.country, c.city,
+                   c.website, c.email, c.telephone,
+                   ec.source_exhibitor_id, ec.seo_id, ec.hall, ec.stand,
+                   ec.location, ec.premium, ec.tags_json,
+                   e.event_name, e.edition
+            FROM change_history ch
+            JOIN companies c ON c.id = ch.company_id
+            LEFT JOIN exhibition_companies ec
+              ON ec.id = ch.exhibition_company_id
+            LEFT JOIN exhibitions e ON e.id = ch.exhibition_id
+            WHERE ch.run_id = ?
+            ORDER BY ch.id
+            """,
+            (run_id,),
+        ).fetchall()
+
+
+def discard_change_history(run_id):
+    """Remove provisional history for a failed synchronization run."""
+
+    with get_connection() as connection:
+        connection.execute(
+            "DELETE FROM change_history WHERE run_id = ?",
+            (run_id,),
+        )

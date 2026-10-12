@@ -1,6 +1,9 @@
 import requests
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 
 from config import (
     DIRECTORY_LETTERS,
@@ -18,7 +21,10 @@ from database import (
     get_or_create_exhibition,
     initialize_database,
     sync_exhibitor,
+    discard_change_history,
+    get_change_history,
 )
+from excel_export import export_change_report, summarize_change_rows
 
 
 def fetch_directory_letter(letter, event_config=None):
@@ -175,12 +181,16 @@ def sync_event(
     edition,
     event_code,
     exhibitors,
+    run_id=None,
+    emit_summary=True,
 ):
     """
     Synchronize a collection of exhibitor records for one exhibition.
     """
 
     initialize_database()
+    owns_run = run_id is None
+    run_id = run_id or str(uuid4())
 
     exhibition_id = get_or_create_exhibition(
         event_name=event_name,
@@ -191,22 +201,105 @@ def sync_event(
     created = 0
     updated = 0
 
-    for record in exhibitors:
-        result = sync_exhibitor(
-            record,
-            exhibition_id,
-        )
+    try:
+        for record in exhibitors:
+            result = sync_exhibitor(record, exhibition_id, run_id=run_id)
 
-        if result["created"]:
-            created += 1
-        else:
-            updated += 1
+            if result["created"]:
+                created += 1
+            else:
+                updated += 1
+    except Exception:
+        discard_change_history(run_id)
+        raise
+
+    changes = get_change_history(run_id)
+    if owns_run:
+        _report_run_results(
+            run_id,
+            changes,
+            emit_summary=emit_summary,
+        )
 
     return {
         "total": len(exhibitors),
         "created": created,
         "updated": updated,
     }
+
+
+def _report_run_results(run_id, changes, emit_summary=True):
+    """Create edition reports and print counts from the same source rows."""
+
+    reports = []
+    grouped = {}
+    for change in changes:
+        key = (change["event_name"], change["edition"])
+        grouped.setdefault(key, []).append(change)
+
+    timestamp = datetime.now().astimezone()
+    summaries = []
+    for (event_name, edition), edition_changes in grouped.items():
+        counts = summarize_change_rows(edition_changes)
+        report_path = export_change_report(
+            run_id,
+            edition_changes,
+            timestamp=timestamp,
+        )
+        reports.append(report_path)
+        summaries.append((event_name, edition, counts, report_path))
+
+    if emit_summary:
+        if not summaries:
+            print("Sync completed. No changes detected.")
+        else:
+            print("Sync completed. Changes detected.")
+            for event_name, edition, counts, report_path in summaries:
+                print(
+                    f"\n{event_name} {edition}: "
+                    f"New participations: "
+                    f"{counts['new_participation_count']} | "
+                    f"Updated records: {counts['updated_record_count']} | "
+                    f"Changed fields: {counts['changed_field_count']}"
+                )
+                try:
+                    display_path = Path(report_path).relative_to(Path.cwd())
+                except ValueError:
+                    display_path = Path(report_path)
+                print(f"Change report: {display_path.as_posix()}")
+    return reports, summaries
+
+
+def sync_configured_events(event_names=None):
+    """Synchronize configured events as one run with edition reports."""
+
+    selected = event_names or list(EVENTS)
+    run_id = str(uuid4())
+    results = []
+    try:
+        for event_name in selected:
+            config = get_event_config(event_name)
+            exhibitors = fetch_exhibitors_by_event(
+                config["event_label"],
+                event_config=config,
+            )
+            results.append(
+                sync_event(
+                    event_name=event_name.upper(),
+                    edition=config["edition"],
+                    event_code=config["event_code"],
+                    exhibitors=exhibitors,
+                    run_id=run_id,
+                    emit_summary=False,
+                )
+            )
+    except Exception:
+        discard_change_history(run_id)
+        raise
+
+    changes = get_change_history(run_id)
+    _report_run_results(run_id, changes)
+    return results
 
 
 def sync_event_from_api(
@@ -262,10 +355,4 @@ def sync_gifa_2023():
 
 if __name__ == "__main__":
     selected_event = sys.argv[1] if len(sys.argv) > 1 else "GIFA"
-    result = sync_configured_event(selected_event)
-
-    print(f"\n--- {selected_event.upper()} SYNC ---")
-    print(f"Total exhibitors:    {result['total']}")
-    print(f"New companies:       {result['created']}")
-    print(f"Updated companies:   {result['updated']}")
-    print("--- END SYNC ---")
+    sync_configured_event(selected_event)

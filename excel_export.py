@@ -6,6 +6,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
+from datetime import datetime, timedelta
+from config import CHANGES_DIR
 
 import database
 
@@ -203,6 +205,138 @@ def export_database_to_excel(output_path="exports"):
         )
         for exhibition in exhibitions
     ]
+
+
+def summarize_change_rows(changes):
+    """Return the unique report rows and counts for a synchronization edition."""
+
+    new_companies = {
+        row["company_id"]: row
+        for row in changes
+        if row["record_type"] == "company" and row["is_new"]
+    }
+    new_participations = {
+        row["exhibition_company_id"]: row
+        for row in changes
+        if row["record_type"] == "participation" and row["is_new"]
+    }
+    changed_rows = []
+    seen = set()
+    for row in changes:
+        if row["field_name"] == "__new_record__":
+            continue
+        key = (
+            row["record_type"], row["company_id"],
+            row["exhibition_company_id"], row["field_name"],
+            row["previous_value"], row["new_value"],
+        )
+        if key not in seen:
+            seen.add(key)
+            changed_rows.append(row)
+    return {
+        "new_companies": new_companies,
+        "new_participations": new_participations,
+        "changed_rows": changed_rows,
+        "new_company_count": len(new_companies),
+        "new_participation_count": len(new_participations),
+        "updated_record_count": len({
+            (row["record_type"], row["company_id"],
+             row["exhibition_company_id"])
+            for row in changed_rows
+        }),
+        "changed_field_count": len(changed_rows),
+    }
+
+
+def export_change_report(
+    run_id,
+    changes,
+    output_dir=CHANGES_DIR,
+    timestamp=None,
+):
+    """Write one edition-specific workbook for a synchronization run."""
+
+    output_directory = Path(output_dir)
+    event_name = str(changes[0]["event_name"]).upper()
+    edition_directory = output_directory / event_name
+    edition_directory.mkdir(parents=True, exist_ok=True)
+    timestamp = timestamp or datetime.now().astimezone()
+    timestamp = timestamp.astimezone()
+    output_path = edition_directory / (
+        f"sync_changes_{event_name}_{timestamp:%Y-%m-%d_%H-%M-%S_%f}.xlsx"
+    )
+    while output_path.exists():
+        timestamp += timedelta(microseconds=1)
+        output_path = edition_directory / (
+            f"sync_changes_{event_name}_"
+            f"{timestamp:%Y-%m-%d_%H-%M-%S_%f}.xlsx"
+        )
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "Summary"
+    new_companies = workbook.create_sheet("New Companies")
+    new_participations = workbook.create_sheet("New Participations")
+    changed_data = workbook.create_sheet("Changed Data")
+
+    summary_data = summarize_change_rows(changes)
+    new_company_rows = summary_data["new_companies"]
+    new_participation_rows = summary_data["new_participations"]
+    changed_rows = summary_data["changed_rows"]
+
+    summary.append(["Synchronization Timestamp", timestamp.replace(tzinfo=None)])
+    summary["B1"].number_format = "yyyy-mm-dd hh:mm:ss"
+    summary.append(["Total New Companies", summary_data["new_company_count"]])
+    summary.append([
+        "New Exhibition Participations",
+        summary_data["new_participation_count"],
+    ])
+    summary.append(["Updated Records", summary_data["updated_record_count"]])
+    summary.append(["Total Changed Fields", summary_data["changed_field_count"]])
+    summary["D1"] = "Synchronization Run ID"
+    summary["E1"] = run_id
+    summary.column_dimensions["A"].width = 32
+    summary.column_dimensions["B"].width = 28
+    summary["A1"].font = Font(bold=True)
+
+    new_companies.append([
+        "Company Name", "Country", "City", "Website", "Email", "Telephone"
+    ])
+    for row in new_company_rows.values():
+        new_companies.append([
+            row["company_name"], row["country"], row["city"], row["website"],
+            row["email"], row["telephone"],
+        ])
+
+    new_participations.append([
+        "Company Name", "Exhibition", "Edition", "Hall", "Stand",
+        "Location", "Premium", "Exhibitor ID", "Exhibition SEO ID", "Tags",
+    ])
+    for row in new_participation_rows.values():
+        new_participations.append([
+            row["company_name"], row["event_name"], row["edition"],
+            row["hall"], row["stand"], row["location"], bool(row["premium"]),
+            row["source_exhibitor_id"], row["seo_id"], row["tags_json"],
+        ])
+
+    changed_data.append([
+        "Company Name", "Exhibition", "Edition", "Record Type",
+        "Field Changed", "Previous Value", "New Value", "Change Timestamp",
+    ])
+    for row in changed_rows:
+        changed_data.append([
+            row["company_name"], row["event_name"], row["edition"],
+            row["record_type"], row["field_name"], row["previous_value"],
+            row["new_value"], row["changed_at"],
+        ])
+
+    for worksheet, table_name in (
+        (new_companies, "NewCompaniesTable"),
+        (new_participations, "NewParticipationsTable"),
+        (changed_data, "ChangedDataTable"),
+    ):
+        _format_data_sheet(worksheet, table_name)
+    workbook.save(output_path)
+    return output_path
 
 
 def _build_summary_sheet(

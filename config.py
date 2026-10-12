@@ -8,6 +8,8 @@ LOG_DIR = BASE_DIR / "logs"
 
 DATABASE_PATH = DATA_DIR / "md-sync.db"
 LEGACY_DATABASE_PATH = DATA_DIR / "gifa.db"
+EXPORTS_DIR = BASE_DIR / "exports"
+CHANGES_DIR = EXPORTS_DIR / "changes"
 
 GIFA_BASE_URL = (
     "https://widgets.messe-duesseldorf.de/vis-api/vis/v1/en/directory"

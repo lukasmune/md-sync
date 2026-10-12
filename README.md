@@ -46,6 +46,8 @@ The main runtime flow is:
 3. `scraper.sync_event(...)` creates or reuses the exhibition row and then calls `database.sync_exhibitor(...)` for each record.
 4. `database.sync_exhibitor(...)` resolves the company identity, creates or updates the company, and upserts the exhibition participation row.
 5. Optional Excel exports read the SQLite database and generate workbooks.
+6. Successful synchronizations generate edition-specific dated change reports
+   under `exports/changes/` when business data changes.
 
 ## Project Structure
 
@@ -178,6 +180,7 @@ The schema created by `initialize_database()` currently contains:
 - `exhibition_company_categories`
 - `product_category_groups`
 - `sync_metadata`
+- `change_history`
 
 `companies` includes:
 
@@ -271,7 +274,9 @@ The system currently distinguishes between the following cases:
 - The same company appearing at multiple exhibitions: supported by reusing the same company row and inserting multiple rows in `exhibition_companies`.
 - The same company appearing in multiple editions of an exhibition: also supported in principle because the `exhibitions` table is keyed by `event_code` and company identity is not bound to a single edition. The code can keep the same company row and create new participation rows for later event codes.
 
-The code currently does not track a full historical series of appearances or a separate audit log for every change. It stores `first_seen_at`, `last_seen_at`, and `changed_at` on the exhibition relationship row, but not a comprehensive historical table of snapshots.
+The `change_history` table stores run-scoped, field-level business changes.
+It preserves previous and new values for company and edition-specific
+participation data without treating scrape timestamps as business changes.
 
 ### Upsert/update behavior
 
@@ -329,6 +334,28 @@ The database includes `first_seen_at`, `last_seen_at`, and `changed_at` on `exhi
 - `changed_at` is set when key exhibition-participation fields change.
 
 The code does not maintain a separate company-level `first_seen_at` or `last_seen_at` column, and it does not currently compute which companies are new since a previous sync in a dedicated, queryable way.
+
+### Change reports
+
+Each successful synchronization that discovers or changes data writes one
+timestamped workbook per affected edition. Reports are stored in directories
+such as `exports/changes/GIFA/`, `exports/changes/METEC/`,
+`exports/changes/NEWCAST/`, and `exports/changes/THERMPROCESS/`, using names
+using the `sync_changes_<EDITION>_<TIMESTAMP>.xlsx` pattern. Each workbook
+contains only that edition's `Summary`, `New Companies`, `New Participations`,
+and `Changed Data` worksheets with filters, frozen headers, readable column
+widths, exhibition names, and editions. A company already known globally that
+appears in another edition is reported as a new participation rather than a
+new company.
+
+At the end of a successful run the terminal prints either
+`Sync completed. No changes detected.` or a concise section for every
+affected edition containing new-participation, updated-record, and
+changed-field counts followed by the report path. New-company totals remain
+available in the report summary. The terminal counts are derived from the same
+deduplicated rows written to each workbook. Unchanged repeat
+synchronizations do not create empty reports, and a failed synchronization
+discards its provisional history and creates no report or success message.
 
 ## Configuration
 
@@ -459,7 +486,8 @@ database columns and are not written by external synchronization.
 
 The codebase contains a number of real limitations that are visible in the implementation:
 
-- The project stores a few timestamp fields (`first_seen_at`, `last_seen_at`, `changed_at`) but does not maintain a full historical change log.
+- The project stores field-level business history in `change_history`; scrape
+  timestamps remain separate metadata.
 - There is no clear, reliable company-level `first_seen_at` / `last_seen_at` calculation for all companies across editions.
 - The system does not currently compute which companies are new since a previous synchronization in an explicit, queryable way.
 - The active event configuration contains the currently supported fairs and editions; future editions must be added as they are published.
