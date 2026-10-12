@@ -492,7 +492,9 @@ The codebase contains a number of real limitations that are visible in the imple
 - The system does not currently compute which companies are new since a previous synchronization in an explicit, queryable way.
 - The active event configuration contains the currently supported fairs and editions; future editions must be added as they are published.
 - The identity matching rules are based on normalized name/country/city and are not a richer semantic matching system.
-- API retries are bounded and specifically handle rate limiting responses.
+- Directory and profile API retries are bounded and honor `Retry-After` when
+  the service returns HTTP 429. Directory retries use
+  `DIRECTORY_REQUEST_RETRIES` and `DIRECTORY_REQUEST_DELAY`.
 - Excel export is a reporting/export layer rather than a true data pipeline.
 
 ## Future Development Considerations

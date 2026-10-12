@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from config import (
     DIRECTORY_LETTERS,
+    DIRECTORY_REQUEST_DELAY,
+    DIRECTORY_REQUEST_RETRIES,
     EVENTS,
     FINDER_BASE_URL,
     PROFILE_REQUEST_DELAY,
@@ -34,19 +36,32 @@ def fetch_directory_letter(letter, event_config=None):
 
     url = f"{event_config['base_url']}/{letter.lower()}"
 
-    response = requests.get(
-        url,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0",
-            "X-Vis-Domain": event_config["domain"],
-        },
-        timeout=REQUEST_TIMEOUT,
-    )
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0",
+        "X-Vis-Domain": event_config["domain"],
+    }
+    for attempt in range(DIRECTORY_REQUEST_RETRIES + 1):
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=REQUEST_TIMEOUT,
+        )
+        if response.status_code != 429:
+            response.raise_for_status()
+            return response.json()
 
-    response.raise_for_status()
+        if attempt == DIRECTORY_REQUEST_RETRIES:
+            response.raise_for_status()
 
-    return response.json()
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = max(float(retry_after), DIRECTORY_REQUEST_DELAY)
+        except (TypeError, ValueError):
+            delay = DIRECTORY_REQUEST_DELAY * (2 ** attempt)
+        time.sleep(delay)
+
+    raise RuntimeError("Directory request retry loop completed unexpectedly.")
 
 
 def filter_exhibitors_by_event(records, event_label):

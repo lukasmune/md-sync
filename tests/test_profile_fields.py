@@ -121,6 +121,42 @@ def test_profile_request_retries_rate_limit(monkeypatch):
     assert result == {"categories": []}
 
 
+def test_directory_request_retries_rate_limit(monkeypatch):
+    class Response:
+        def __init__(self, status_code, retry_after=None):
+            self.status_code = status_code
+            self.headers = (
+                {"Retry-After": retry_after}
+                if retry_after is not None
+                else {}
+            )
+
+        def raise_for_status(self):
+            if self.status_code != 200:
+                raise RuntimeError("request failed")
+
+        def json(self):
+            return [{"type": "profile"}]
+
+    responses = iter([
+        Response(429, "0"),
+        Response(200),
+    ])
+    monkeypatch.setattr(
+        scraper.requests,
+        "get",
+        lambda *args, **kwargs: next(responses),
+    )
+    monkeypatch.setattr(scraper.time, "sleep", lambda _: None)
+
+    result = scraper.fetch_directory_letter(
+        "i",
+        {"base_url": "https://example.test/directory", "domain": "example.test"},
+    )
+
+    assert result == [{"type": "profile"}]
+
+
 def test_categories_are_normalized_and_idempotent(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
     monkeypatch.setattr(database, "DATA_DIR", tmp_path)
