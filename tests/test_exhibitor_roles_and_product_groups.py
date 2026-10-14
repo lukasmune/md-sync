@@ -3,7 +3,12 @@ from openpyxl import load_workbook
 import database
 import scraper
 from excel_export import export_event
-from product_groups import GIFA_PRODUCT_GROUP_COLUMNS, GIFA_PRODUCT_GROUPS
+from product_groups import (
+    GIFA_PRODUCT_GROUP_COLUMNS,
+    GIFA_PRODUCT_GROUP_MAPPINGS,
+    GIFA_PRODUCT_GROUPS,
+    canonicalize_gifa_product_groups,
+)
 
 
 def setup_database(tmp_path, monkeypatch):
@@ -141,6 +146,17 @@ def test_gifa_product_groups_are_ordered_and_export_as_x_or_blank(
     assert GIFA_PRODUCT_GROUP_COLUMNS[0].startswith("1. ")
     assert GIFA_PRODUCT_GROUP_COLUMNS[-1].startswith("29. ")
     workbook.close()
+
+
+def test_gifa_english_mapping_has_29_ordered_entries_and_aliases():
+    assert len(GIFA_PRODUCT_GROUP_MAPPINGS) == 29
+    assert GIFA_PRODUCT_GROUPS[0] == (
+        "Foundry plants and installations, planning, construction, engineering"
+    )
+    assert GIFA_PRODUCT_GROUPS[24] == "Additive Manufacturing"
+    assert canonicalize_gifa_product_groups(
+        [GIFA_PRODUCT_GROUP_MAPPINGS[0][0]]
+    ) == (GIFA_PRODUCT_GROUPS[0],)
 
 
 def test_co_exhibitor_categories_are_persisted_and_repeatable(

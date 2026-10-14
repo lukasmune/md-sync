@@ -294,7 +294,12 @@ def _report_run_results(run_id, changes, emit_summary=True):
             print("Sync completed. No changes detected.")
         else:
             print("Sync completed. Changes detected.")
-            for event_name, edition, counts, report_path in summaries:
+            for index, (
+                event_name,
+                edition,
+                counts,
+                report_path,
+            ) in enumerate(summaries):
                 print(
                     f"{event_name} {edition}: "
                     f"New companies: {counts['new_company_count']} | "
@@ -305,6 +310,8 @@ def _report_run_results(run_id, changes, emit_summary=True):
                     f"Changed fields: {counts['changed_field_count']}"
                 )
                 print(f"Change report: {report_path}")
+                if index < len(summaries) - 1:
+                    print()
     return reports, summaries
 
 

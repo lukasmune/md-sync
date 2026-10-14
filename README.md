@@ -93,13 +93,19 @@ decisions.
 
 ### GIFA product-group columns
 
-GIFA `Sales Leads` exports append the 29 official product-group columns,
-numbered `1. ...` through `29. ...`, in the central order defined in
-[product_groups.py](./product_groups.py). During synchronization, the source
-category hierarchy is stored for each exhibition participation and the export
-automatically marks each matching canonical group with `x`. A column contains
-`x` only when that exact group is present in verified source category data.
-Unverified and non-applicable groups are blank. The original
+GIFA `Sales Leads` exports append 29 English product-group columns, numbered
+`1. ...` through `29. ...`, in the central order defined in
+[product_groups.py](./product_groups.py). The English wording is mapped from
+the official GIFA VIS profile API used by the website
+(`https://finder.messe-duesseldorf.de/vis-api/vis/v1/en/exhibitors/.../slices/profile`);
+German source labels remain accepted as aliases. During synchronization, the
+source category hierarchy is stored for each exhibition participation and the
+export automatically marks each matching canonical group with `x`. A column
+contains `x` only when that exact group is present in source category data.
+Unverified and non-applicable groups are blank. The fallback translations for
+rare groups not observed in the sampled GIFA 2023 English profiles are marked
+in `GIFA_PRODUCT_GROUP_MAPPINGS` with `verified=False` and can be replaced when
+the official source exposes those labels. The original
 `Product Categories` and `Product Groups` columns remain available, and the
 additional GIFA columns are blank for other events.
 - [requirements.txt](./requirements.txt) — runtime/test dependencies: `requests`, `openpyxl`, and `pytest`.
