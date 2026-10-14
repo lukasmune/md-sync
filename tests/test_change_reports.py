@@ -51,6 +51,7 @@ def test_report_contains_new_company_and_participation(report_context):
         cell.value for cell in workbook["New Participations"][1]
     ]
     assert "Parent Exhibitor ID" not in participation_headers
+    assert "Tags" not in participation_headers
 
 
 def test_known_company_in_new_edition_is_new_participation(report_context):

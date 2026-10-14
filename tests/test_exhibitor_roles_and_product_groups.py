@@ -141,3 +141,45 @@ def test_gifa_product_groups_are_ordered_and_export_as_x_or_blank(
     assert GIFA_PRODUCT_GROUP_COLUMNS[0].startswith("1. ")
     assert GIFA_PRODUCT_GROUP_COLUMNS[-1].startswith("29. ")
     workbook.close()
+
+
+def test_co_exhibitor_categories_are_persisted_and_repeatable(
+    tmp_path, monkeypatch
+):
+    exhibition_id = setup_database(tmp_path, monkeypatch)
+    record = {
+        "exh": "CO-1",
+        "name": "Co Categorized Foundry",
+        "exhibitor_role": "co-exhibitor",
+        "categories": [
+            {
+                "id": "cat-1",
+                "label": "Foundry",
+                "hierarchy": [
+                    {"id": "group-1", "label": GIFA_PRODUCT_GROUPS[1]},
+                ],
+                "productList": [
+                    {"id": "group-2", "label": GIFA_PRODUCT_GROUPS[3]},
+                ],
+            }
+        ],
+    }
+    database.sync_exhibitor(record, exhibition_id)
+    database.sync_exhibitor(record, exhibition_id)
+
+    path = export_event("GIFA", 2023, tmp_path)
+    workbook = load_workbook(path, read_only=True)
+    headers = [cell.value for cell in next(workbook["Sales Leads"].iter_rows())]
+    row = dict(zip(
+        headers,
+        (cell.value for cell in next(
+            workbook["Sales Leads"].iter_rows(min_row=2)
+        )),
+    ))
+
+    assert row[GIFA_PRODUCT_GROUP_COLUMNS[1]] == "x"
+    assert row[GIFA_PRODUCT_GROUP_COLUMNS[3]] == "x"
+    assert row["Exhibitor Role"] == "co-exhibitor"
+    assert "Tags" not in headers
+    assert len(list(workbook["Sales Leads"].iter_rows(min_row=2))) == 1
+    workbook.close()

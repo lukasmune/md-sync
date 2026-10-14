@@ -814,7 +814,10 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
                 str(group.get("label"))
                 for category in categories
                 if isinstance(category, dict)
-                for group in (category.get("hierarchy") or [])
+                for group in (
+                    list(category.get("hierarchy") or [])
+                    + list(category.get("productList") or [])
+                )
                 if isinstance(group, dict) and group.get("label")
             )
             category_values = {

@@ -60,6 +60,7 @@ def test_export_omits_logo_and_includes_normalized_categories(tmp_path, monkeypa
     assert "Logo" not in lead_headers
     assert "Contact Person" not in company_headers
     assert "Contact Person" not in lead_headers
+    assert "Tags" not in lead_headers
     values = {
         header: workbook["Sales Leads"].cell(row=2, column=index + 1).value
         for index, header in enumerate(lead_headers)

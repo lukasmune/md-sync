@@ -72,3 +72,18 @@ def extract_gifa_product_groups(categories):
     return tuple(
         label for label in GIFA_PRODUCT_GROUPS if label in matches
     )
+
+
+def canonicalize_gifa_product_groups(values):
+    """Return canonical groups found in persisted source labels."""
+
+    normalized = {
+        normalize_product_group_label(value)
+        for value in values
+        if value
+    }
+    return tuple(
+        label
+        for label in GIFA_PRODUCT_GROUPS
+        if normalize_product_group_label(label) in normalized
+    )

@@ -9,6 +9,7 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 from config import CHANGES_DIR
 from product_groups import (
+    canonicalize_gifa_product_groups,
     GIFA_PRODUCT_GROUP_COLUMNS,
     GIFA_PRODUCT_GROUPS,
     normalize_product_group_label,
@@ -317,14 +318,13 @@ def export_change_report(
     new_participations.append([
         "Company Name", "Exhibition", "Edition", "Hall", "Stand",
         "Location", "Premium", "Exhibitor ID", "Exhibition SEO ID",
-        "Exhibitor Role", "Tags",
+        "Exhibitor Role",
     ])
     for row in new_participation_rows.values():
         new_participations.append([
             row["company_name"], row["event_name"], row["edition"],
             row["hall"], row["stand"], row["location"], bool(row["premium"]),
             row["source_exhibitor_id"], row["seo_id"], row["exhibitor_role"],
-            row["tags_json"],
         ])
 
     changed_data.append([
@@ -440,7 +440,6 @@ def _build_records_sheet(
         "Stand",
         "Location",
         "Premium",
-        "Tags",
         "Email",
         "Telephone",
         "Product Categories",
@@ -472,7 +471,6 @@ def _build_records_sheet(
                 record["stand"],
                 record["location"],
                 bool(record["premium"]),
-                record["tags_json"],
                 record["email"],
                 record["telephone"],
                 record["product_categories"],
@@ -487,7 +485,9 @@ def _build_records_sheet(
                     and normalize_product_group_label(group)
                     in {
                         normalize_product_group_label(value)
-                        for value in str(record["product_groups"] or "").split("; ")
+                        for value in canonicalize_gifa_product_groups(
+                            str(record["product_groups"] or "").split("; ")
+                        )
                     }
                 )
                 else ""
