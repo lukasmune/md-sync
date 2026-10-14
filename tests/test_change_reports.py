@@ -47,6 +47,10 @@ def test_report_contains_new_company_and_participation(report_context):
     assert workbook["Summary"]["B3"].value == 1
     assert workbook["New Companies"].max_row == 2
     assert workbook["New Participations"].max_row == 2
+    participation_headers = [
+        cell.value for cell in workbook["New Participations"][1]
+    ]
+    assert "Parent Exhibitor ID" not in participation_headers
 
 
 def test_known_company_in_new_edition_is_new_participation(report_context):
@@ -83,10 +87,8 @@ def test_batch_sync_creates_one_report_per_affected_edition(
     metec_reports = list((report_context / "METEC").glob("sync_changes_*.xlsx"))
     assert len(gifa_reports) == 1
     assert len(metec_reports) == 1
-    assert "GIFA 2023: New participations: 1" in output
-    assert "METEC 2023: New participations: 1" in output
-    assert "New companies:" not in output
-    assert "exports/changes/GIFA/" not in output
+    assert "GIFA 2023: New companies: 1 | New participations: 1 | Updated records: 0 | Changed fields: 0" in output
+    assert "METEC 2023: New companies: 1 | New participations: 1 | Updated records: 0 | Changed fields: 0" in output
     assert "Change report:" in output
 
     for report in (gifa_reports + metec_reports):
@@ -129,6 +131,31 @@ def test_consecutive_changed_runs_keep_unique_report_files(report_context):
     reports = list((report_context / "GIFA").glob("sync_changes_*.xlsx"))
     assert len(reports) == 3
     assert len({report.name for report in reports}) == 3
+    assert all(
+        report.name.startswith("sync_changes_GIFA_")
+        and len(report.stem.rsplit("_", 1)[-1]) == 6
+        for report in reports
+    )
+
+
+def test_multiple_changes_in_one_edition_are_consolidated(report_context):
+    scraper.sync_event(
+        "GIFA",
+        2023,
+        "GIFA2023",
+        [
+            _record(exh="E1", name="Acme GmbH"),
+            _record(exh="E2", name="Beta GmbH"),
+        ],
+    )
+
+    reports = list((report_context / "GIFA").glob("sync_changes_*.xlsx"))
+    assert len(reports) == 1
+    workbook = load_workbook(reports[0], read_only=True)
+    assert workbook["Summary"]["B2"].value == 2
+    assert workbook["Summary"]["B3"].value == 2
+    assert workbook["New Companies"].max_row == 3
+    assert workbook["New Participations"].max_row == 3
 
 
 def test_changed_values_are_reported_and_repeat_is_empty(report_context):

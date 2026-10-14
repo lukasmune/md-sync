@@ -104,6 +104,9 @@ def initialize_database():
                 tags_json TEXT,
                 event_icons_json TEXT,
 
+                exhibitor_role TEXT NOT NULL DEFAULT 'direct',
+                parent_source_exhibitor_id TEXT,
+
                 scraped_at TEXT NOT NULL,
 
                 FOREIGN KEY (company_id)
@@ -196,6 +199,19 @@ def initialize_database():
             try:
                 cursor.execute(
                     f"ALTER TABLE exhibition_companies ADD COLUMN {column} TEXT"
+                )
+            except sqlite3.OperationalError as error:
+                if "duplicate column name" not in str(error):
+                    raise
+
+        for column, definition in (
+            ("exhibitor_role", "TEXT NOT NULL DEFAULT 'direct'"),
+            ("parent_source_exhibitor_id", "TEXT"),
+        ):
+            try:
+                cursor.execute(
+                    f"ALTER TABLE exhibition_companies ADD COLUMN "
+                    f"{column} {definition}"
                 )
             except sqlite3.OperationalError as error:
                 if "duplicate column name" not in str(error):
@@ -423,6 +439,41 @@ def find_company(name, country=None, city=None):
         return None
 
 
+def find_duplicate_candidates(name, country=None, city=None, source_id=None):
+    """Return possible duplicate companies for review without merging anything."""
+
+    normalized_name = normalize_company_name(name)
+    normalized_country = normalize_country(country)
+    normalized_city = normalize_city(city)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT c.*
+            FROM companies c
+            LEFT JOIN exhibition_companies ec ON ec.company_id = c.id
+            WHERE (
+                c.normalized_name = ?
+                AND (
+                    c.normalized_country = ?
+                    OR c.normalized_city = ?
+                    OR ? IS NULL
+                )
+            )
+            OR (? IS NOT NULL AND ec.source_exhibitor_id = ?)
+            ORDER BY c.id
+            """,
+            (
+                normalized_name,
+                normalized_country,
+                normalized_city,
+                normalized_country,
+                source_id,
+                source_id,
+            ),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def create_company(record):
     """
     Create a new company from an external source record.
@@ -639,6 +690,10 @@ def _participation_changes(existing, record, categories):
         "premium": 1 if record.get("premium") else 0,
         "tags": json.dumps(record.get("tags", []), sort_keys=True),
         "event_icons": json.dumps(record.get("eventIcons", []), sort_keys=True),
+        "exhibitor_role": record.get("exhibitor_role", "direct"),
+        "parent_source_exhibitor_id": record.get(
+            "parent_source_exhibitor_id"
+        ),
     }
     if categories is not None:
         labels = sorted(
@@ -650,7 +705,10 @@ def _participation_changes(existing, record, categories):
             str(group.get("label"))
             for category in categories
             if isinstance(category, dict)
-            for group in (category.get("hierarchy") or [])
+            for group in (
+                list(category.get("hierarchy") or [])
+                + list(category.get("productList") or [])
+            )
             if isinstance(group, dict) and group.get("label")
         )
         values["product_categories"] = json.dumps(labels)
@@ -664,6 +722,10 @@ def _participation_changes(existing, record, categories):
         "premium": existing["premium"],
         "tags": _json_for_history(existing["tags_json"]),
         "event_icons": _json_for_history(existing["event_icons_json"]),
+        "exhibitor_role": existing["exhibitor_role"],
+        "parent_source_exhibitor_id": existing[
+            "parent_source_exhibitor_id"
+        ],
         "product_categories": existing["product_categories"],
         "product_groups": existing["product_groups"],
     }
@@ -705,7 +767,8 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
         existing = cursor.execute(
             """
             SELECT id, source_exhibitor_id, seo_id, hall, stand, location,
-                   premium, tags_json, event_icons_json
+                   premium, tags_json, event_icons_json, exhibitor_role,
+                   parent_source_exhibitor_id
             FROM exhibition_companies
             WHERE exhibition_id = ? AND source_exhibitor_id = ?
             """,
@@ -768,6 +831,8 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
                 existing["premium"],
                 existing["tags_json"],
                 existing["event_icons_json"],
+                existing["exhibitor_role"],
+                existing["parent_source_exhibitor_id"],
             )
             == (
                 record.get("exhSeoId"),
@@ -777,6 +842,8 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
                 1 if record.get("premium") else 0,
                 tags_json,
                 event_icons_json,
+                record.get("exhibitor_role", "direct"),
+                record.get("parent_source_exhibitor_id"),
             )
         )
         if duplicate and category_values is not None:
@@ -800,12 +867,14 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
                 premium,
                 tags_json,
                 event_icons_json,
+                exhibitor_role,
+                parent_source_exhibitor_id,
                 scraped_at,
                 first_seen_at,
                 last_seen_at,
                 changed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
             ON CONFLICT(exhibition_id, source_exhibitor_id)
             DO UPDATE SET
@@ -817,6 +886,8 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
                 premium = excluded.premium,
                 tags_json = excluded.tags_json,
                 event_icons_json = excluded.event_icons_json,
+                exhibitor_role = excluded.exhibitor_role,
+                parent_source_exhibitor_id = excluded.parent_source_exhibitor_id,
                                 scraped_at = excluded.scraped_at,
                                 last_seen_at = excluded.last_seen_at,
                                 changed_at = CASE
@@ -827,6 +898,8 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
                                             OR exhibition_companies.premium IS NOT excluded.premium
                                             OR exhibition_companies.tags_json IS NOT excluded.tags_json
                                             OR exhibition_companies.event_icons_json IS NOT excluded.event_icons_json
+                                            OR exhibition_companies.exhibitor_role IS NOT excluded.exhibitor_role
+                                            OR exhibition_companies.parent_source_exhibitor_id IS NOT excluded.parent_source_exhibitor_id
                                         THEN excluded.changed_at
                                         ELSE exhibition_companies.changed_at
                                 END
@@ -842,6 +915,8 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
                 1 if record.get("premium") else 0,
                 tags_json,
                 event_icons_json,
+                record.get("exhibitor_role", "direct"),
+                record.get("parent_source_exhibitor_id"),
                 scraped_at,
                 scraped_at,
                 scraped_at,
@@ -928,7 +1003,9 @@ def sync_product_categories(exhibition_id, exhibitor_id, categories):
                 (participation["id"], category_id),
             )
 
-            for position, group in enumerate(hierarchy):
+            for position, group in enumerate(
+                list(hierarchy) + list(category.get("productList") or [])
+            ):
                 if not isinstance(group, dict):
                     continue
                 group_id = group.get("id")
@@ -1092,6 +1169,7 @@ def get_change_history(run_id):
                    c.website, c.email, c.telephone,
                    ec.source_exhibitor_id, ec.seo_id, ec.hall, ec.stand,
                    ec.location, ec.premium, ec.tags_json,
+                   ec.exhibitor_role, ec.parent_source_exhibitor_id,
                    e.event_name, e.edition
             FROM change_history ch
             JOIN companies c ON c.id = ch.company_id

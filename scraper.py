@@ -2,7 +2,6 @@ import requests
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
 from uuid import uuid4
 
 from config import (
@@ -101,9 +100,35 @@ def fetch_exhibitors_by_event(event_label, event_config=None):
                 enrich_exhibitor_record(record, event_config)
                 for record in matching
             ]
-        exhibitors.extend(matching)
+        for exhibitor in matching:
+            exhibitors.extend(expand_exhibitor_records(exhibitor))
 
     return exhibitors
+
+
+def expand_exhibitor_records(record):
+    """Expand source-provided co-exhibitors without changing direct records."""
+
+    expanded = [dict(record, exhibitor_role="direct")]
+    nested_keys = (
+        "coExhibitors",
+        "co_exhibitors",
+        "coExhibitor",
+        "subExhibitors",
+        "sub_exhibitors",
+    )
+    for key in nested_keys:
+        nested = record.get(key) or []
+        if isinstance(nested, dict):
+            nested = [nested]
+        for child in nested:
+            if not isinstance(child, dict):
+                continue
+            child_record = dict(child)
+            child_record["exhibitor_role"] = "co-exhibitor"
+            child_record["parent_source_exhibitor_id"] = record.get("exh")
+            expanded.append(child_record)
+    return expanded
 
 
 def fetch_exhibitor_profile(exhibitor_id, event_config):
@@ -249,7 +274,7 @@ def _report_run_results(run_id, changes, emit_summary=True):
     reports = []
     grouped = {}
     for change in changes:
-        key = (change["event_name"], change["edition"])
+        key = (str(change["event_name"]).strip().upper(), change["edition"])
         grouped.setdefault(key, []).append(change)
 
     timestamp = datetime.now().astimezone()
@@ -271,17 +296,15 @@ def _report_run_results(run_id, changes, emit_summary=True):
             print("Sync completed. Changes detected.")
             for event_name, edition, counts, report_path in summaries:
                 print(
-                    f"\n{event_name} {edition}: "
+                    f"{event_name} {edition}: "
+                    f"New companies: {counts['new_company_count']} | "
                     f"New participations: "
                     f"{counts['new_participation_count']} | "
-                    f"Updated records: {counts['updated_record_count']} | "
+                    f"Updated records: "
+                    f"{counts['updated_record_count']} | "
                     f"Changed fields: {counts['changed_field_count']}"
                 )
-                try:
-                    display_path = Path(report_path).relative_to(Path.cwd())
-                except ValueError:
-                    display_path = Path(report_path)
-                print(f"Change report: {display_path.as_posix()}")
+                print(f"Change report: {report_path}")
     return reports, summaries
 
 

@@ -8,6 +8,11 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 from config import CHANGES_DIR
+from product_groups import (
+    GIFA_PRODUCT_GROUP_COLUMNS,
+    GIFA_PRODUCT_GROUPS,
+    normalize_product_group_label,
+)
 
 import database
 
@@ -93,6 +98,8 @@ def export_exhibition_to_excel(
                 e.event_code,
                 ec.source_exhibitor_id AS exhibitor_id,
                 ec.seo_id AS exh_seo_id,
+                    ec.exhibitor_role,
+                    ec.parent_source_exhibitor_id,
             ec.hall,
             ec.stand,
                 ec.location,
@@ -263,13 +270,13 @@ def export_change_report(
     timestamp = timestamp or datetime.now().astimezone()
     timestamp = timestamp.astimezone()
     output_path = edition_directory / (
-        f"sync_changes_{event_name}_{timestamp:%Y-%m-%d_%H-%M-%S_%f}.xlsx"
+        f"sync_changes_{event_name}_{timestamp:%Y-%m-%d_%H%M%S}.xlsx"
     )
     while output_path.exists():
-        timestamp += timedelta(microseconds=1)
+        timestamp += timedelta(seconds=1)
         output_path = edition_directory / (
             f"sync_changes_{event_name}_"
-            f"{timestamp:%Y-%m-%d_%H-%M-%S_%f}.xlsx"
+            f"{timestamp:%Y-%m-%d_%H%M%S}.xlsx"
         )
     workbook = Workbook()
     summary = workbook.active
@@ -309,13 +316,15 @@ def export_change_report(
 
     new_participations.append([
         "Company Name", "Exhibition", "Edition", "Hall", "Stand",
-        "Location", "Premium", "Exhibitor ID", "Exhibition SEO ID", "Tags",
+        "Location", "Premium", "Exhibitor ID", "Exhibition SEO ID",
+        "Exhibitor Role", "Tags",
     ])
     for row in new_participation_rows.values():
         new_participations.append([
             row["company_name"], row["event_name"], row["edition"],
             row["hall"], row["stand"], row["location"], bool(row["premium"]),
-            row["source_exhibitor_id"], row["seo_id"], row["tags_json"],
+            row["source_exhibitor_id"], row["seo_id"], row["exhibitor_role"],
+            row["tags_json"],
         ])
 
     changed_data.append([
@@ -426,6 +435,7 @@ def _build_records_sheet(
         "Event Code",
         "Exhibitor ID",
         "Exhibition SEO ID",
+        "Exhibitor Role",
         "Hall",
         "Stand",
         "Location",
@@ -438,7 +448,7 @@ def _build_records_sheet(
         "First Seen",
         "Last Seen",
         "Last Changed",
-    ]
+    ] + list(GIFA_PRODUCT_GROUP_COLUMNS)
 
     worksheet.append(headers)
 
@@ -457,6 +467,7 @@ def _build_records_sheet(
                 record["event_code"],
                 record["exhibitor_id"],
                 record["exh_seo_id"],
+                record["exhibitor_role"],
                 record["hall"],
                 record["stand"],
                 record["location"],
@@ -469,6 +480,18 @@ def _build_records_sheet(
                 record["first_seen_at"],
                 record["last_seen_at"],
                 record["changed_at"],
+            ] + [
+                "x"
+                if (
+                    record["event_name"] == "GIFA"
+                    and normalize_product_group_label(group)
+                    in {
+                        normalize_product_group_label(value)
+                        for value in str(record["product_groups"] or "").split("; ")
+                    }
+                )
+                else ""
+                for group in GIFA_PRODUCT_GROUPS
             ]
         )
 
