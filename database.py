@@ -15,8 +15,34 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
+_shared_connection = None
+
+
+@contextmanager
+def transaction():
+    """Run every get_connection() call inside one transaction.
+
+    Commits when the block exits normally and rolls everything back on any
+    exception. Outside this block get_connection() behaves as before.
+    """
+    global _shared_connection
+    if _shared_connection is not None:
+        raise RuntimeError("Nested database transactions are not supported.")
+
+    with get_connection() as connection:
+        _shared_connection = connection
+        try:
+            yield connection
+        finally:
+            _shared_connection = None
+
+
 @contextmanager
 def get_connection():
+    if _shared_connection is not None:
+        yield _shared_connection
+        return
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     if (
@@ -736,9 +762,18 @@ def _participation_changes(existing, record, categories):
     ]
 
 
-def upsert_exhibition_company(company_id, exhibition_id, record, categories=None):
+def upsert_exhibition_company(
+    company_id,
+    exhibition_id,
+    record,
+    categories=None,
+    historical=False,
+):
     """
     Create or update the company's participation in an exhibition.
+
+    With ``historical=True`` an identical existing participation is left
+    untouched, so repeat imports do not rewrite its timestamps.
     """
 
     event_icons = record.get("eventIcons", [])
@@ -849,13 +884,41 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
                 record.get("parent_source_exhibitor_id"),
             )
         )
-        if duplicate and category_values is not None:
+        if duplicate and category_values is not None and historical:
+            # Shared category labels are kept as stored, so compare by ID.
+            stored_ids = sorted(
+                row["source_id"] for row in cursor.execute(
+                    """
+                    SELECT pc.source_id
+                    FROM exhibition_company_categories ecc
+                    JOIN product_categories pc
+                      ON pc.id = ecc.product_category_id
+                    WHERE ecc.exhibition_company_id = ?
+                    """,
+                    (existing["id"],),
+                )
+            )
+            archived_ids = sorted(
+                str(category["id"])
+                for category in categories
+                if isinstance(category, dict) and category.get("id")
+            )
+            duplicate = stored_ids == archived_ids
+        elif duplicate and category_values is not None:
             duplicate = (
                 existing_data["product_categories"]
                 == category_values["product_categories"]
                 and existing_data["product_groups"]
                 == category_values["product_groups"]
             )
+
+        if historical and duplicate:
+            return {
+                "created": False,
+                "updated": False,
+                "duplicate": True,
+                "changes": [],
+            }
 
         cursor.execute(
             """
@@ -939,8 +1002,33 @@ def upsert_exhibition_company(company_id, exhibition_id, record, categories=None
     }
 
 
-def sync_product_categories(exhibition_id, exhibitor_id, categories):
-    """Upsert structured categories and their hierarchy for one appearance."""
+def sync_product_categories(
+    exhibition_id,
+    exhibitor_id,
+    categories,
+    historical=False,
+):
+    """Upsert structured categories and their hierarchy for one appearance.
+
+    With ``historical=True`` shared category and group rows that already exist
+    are kept as they are instead of being relabelled.
+    """
+
+    on_conflict_category = (
+        "DO NOTHING"
+        if historical
+        else """DO UPDATE SET
+                    label = excluded.label,
+                    catalog_index = excluded.catalog_index,
+                    hierarchy_json = excluded.hierarchy_json"""
+    )
+    on_conflict_group = (
+        "DO NOTHING"
+        if historical
+        else """DO UPDATE SET
+                        label = excluded.label,
+                        level = excluded.level"""
+    )
 
     with get_connection() as connection:
         cursor = connection.cursor()
@@ -976,15 +1064,12 @@ def sync_product_categories(exhibition_id, exhibitor_id, categories):
                 continue
             hierarchy = category.get("hierarchy") or []
             cursor.execute(
-                """
+                f"""
                 INSERT INTO product_categories (
                     source_id, label, catalog_index, hierarchy_json
                 )
                 VALUES (?, ?, ?, ?)
-                ON CONFLICT(source_id) DO UPDATE SET
-                    label = excluded.label,
-                    catalog_index = excluded.catalog_index,
-                    hierarchy_json = excluded.hierarchy_json
+                ON CONFLICT(source_id) {on_conflict_category}
                 """,
                 (
                     source_id,
@@ -1016,12 +1101,10 @@ def sync_product_categories(exhibition_id, exhibitor_id, categories):
                 if not group_id or not group_label:
                     continue
                 cursor.execute(
-                    """
+                    f"""
                     INSERT INTO product_groups (source_id, label, level)
                     VALUES (?, ?, ?)
-                    ON CONFLICT(source_id) DO UPDATE SET
-                        label = excluded.label,
-                        level = excluded.level
+                    ON CONFLICT(source_id) {on_conflict_group}
                     """,
                     (group_id, group_label, position),
                 )
@@ -1068,9 +1151,12 @@ def extract_profile_fields(record):
     }
 
 
-def sync_exhibitor(record, exhibition_id, run_id=None):
+def sync_exhibitor(record, exhibition_id, run_id=None, historical=False):
     """
     Synchronize one scraped exhibitor.
+
+    With ``historical=True`` (archive imports) a matched company is left
+    unchanged and only the edition-specific participation is written.
 
     Returns:
         {
@@ -1095,8 +1181,10 @@ def sync_exhibitor(record, exhibition_id, run_id=None):
         created = True
     else:
         company_id = company["id"]
-        company_changes = _company_changes(company, record)
-        update_company(company_id, record)
+        company_changes = []
+        if not historical:
+            company_changes = _company_changes(company, record)
+            update_company(company_id, record)
         created = False
 
     participation = upsert_exhibition_company(
@@ -1104,7 +1192,16 @@ def sync_exhibitor(record, exhibition_id, run_id=None):
         exhibition_id=exhibition_id,
         record=record,
         categories=record.get("categories") or record.get("productCategories"),
+        historical=historical,
     )
+    if historical and participation["duplicate"]:
+        return {
+            "company_id": company_id,
+            "created": created,
+            "participation_created": False,
+            "participation_updated": False,
+            "duplicate": True,
+        }
     categories = record.get("categories") or record.get("productCategories")
     with get_connection() as connection:
         current = connection.execute(
@@ -1151,6 +1248,7 @@ def sync_exhibitor(record, exhibition_id, run_id=None):
         exhibition_id=exhibition_id,
         exhibitor_id=record.get("exh"),
         categories=categories,
+        historical=historical,
     )
 
     return {

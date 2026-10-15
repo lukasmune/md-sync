@@ -394,6 +394,23 @@ derived from the same deduplicated rows written to each workbook. Unchanged repe
 synchronizations do not create empty reports, and a failed synchronization
 discards its provisional history and creates no report or success message.
 
+## Historical Archives (reconstructed 2023)
+
+The live directories only serve the current (2027) editions. Historical editions are handled through separate, immutable archives in `archive/<FAIR>/<edition>/` (`manifest.json` + `exhibitors.json`; the folder is gitignored). They never affect the live-sync configuration.
+
+```powershell
+python archive.py export --all --edition 2023          # read-only DB export; refuses to overwrite
+python archive.py verify archive\GIFA\2023             # checksums, fair/edition/label/code checks
+python archive.py import archive\GIFA\2023             # dry run on a temporary copy (default)
+python archive.py import archive\GIFA\2023 --apply     # writes to the database
+```
+
+Each archive import runs in a single database transaction: if the import fails with an exception, all of its database changes are rolled back. Process termination and power-loss scenarios have not been independently tested. Back up `data/md-sync.db` before `--apply`.
+
+Import reads only the given archive (never the network) and rejects missing files, bad checksums, mismatched fair/edition/code/label, 2027+ editions and records carrying another label. It is idempotent. Existing companies are left untouched (contact data, categories, sales fields); only the edition-specific participation is written. No change history or change reports are produced.
+
+Limitations of the 2023 archives: `source` is `db-export` (`is_raw_api_snapshot: false`, `captured_at: null`), reconstructed from the database, not original API payloads. Company details may have changed since 2023, co-exhibitor relationships are not available, and first-seen dates are not restored.
+
 ## Configuration
 
 Shared API defaults and the event-specific `EVENTS` mapping are defined in

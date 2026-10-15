@@ -17,6 +17,7 @@ exports/
 
 # Local data
 data/
+archive/
 
 # OS / editor files
 .DS_Store
