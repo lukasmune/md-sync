@@ -1,39 +1,89 @@
 import database
 
-from scraper import sync_gifa_2023
+import scraper
 
 
-def test_gifa_2023_sync_populates_database(tmp_path, monkeypatch):
+def test_configured_gifa_sync_uses_fixture_and_config_values(
+    tmp_path,
+    monkeypatch,
+    gifa_2027_records,
+):
     database_path = tmp_path / "test.db"
 
     monkeypatch.setattr(database, "DATABASE_PATH", database_path)
     monkeypatch.setattr(database, "DATA_DIR", tmp_path)
+    config = scraper.EVENTS["GIFA"]
+    monkeypatch.setattr(scraper, "DIRECTORY_LETTERS", "a")
+    fetch_configs = []
 
-    result = sync_gifa_2023()
+    def fake_fetch_directory_letter(_letter, event_config=None):
+        assert _letter == "a"
+        fetch_configs.append(event_config)
+        return gifa_2027_records
 
-    assert result["total"] == 879
-    assert result["created"] == 866
-    assert result["updated"] == 13
+    def fake_report_run_results(run_id, changes, emit_summary=True):
+        assert run_id
+        assert isinstance(changes, list)
+        assert emit_summary is True
 
+    def fake_fetch_exhibitor_profile(exhibitor_id, event_config):
+        assert event_config is config
+        assert exhibitor_id in {"gifa2027.001", "gifa2027.002"}
+        return {}
+
+    monkeypatch.setattr(
+        scraper,
+        "fetch_directory_letter",
+        fake_fetch_directory_letter,
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_exhibitor_profile",
+        fake_fetch_exhibitor_profile,
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_report_run_results",
+        fake_report_run_results,
+    )
+
+    result = scraper.sync_configured_event("GIFA")
+
+    assert result == {"total": 4, "created": 3, "updated": 1}
+    assert fetch_configs == [config]
     with database.get_connection() as connection:
-        company_count = connection.execute(
+        companies = connection.execute(
             "SELECT COUNT(*) FROM companies"
         ).fetchone()[0]
-
-        exhibition_count = connection.execute(
+        participations = connection.execute(
             "SELECT COUNT(*) FROM exhibition_companies"
         ).fetchone()[0]
-
-        gifa_id_count = connection.execute(
+        exhibition = connection.execute(
+            "SELECT event_name, edition, event_code FROM exhibitions"
+        ).fetchone()
+        updated_location = connection.execute(
             """
-            SELECT COUNT(DISTINCT source_exhibitor_id)
+            SELECT location
             FROM exhibition_companies
+            WHERE source_exhibitor_id = 'gifa2027.001'
             """
         ).fetchone()[0]
 
-    assert company_count == 866
-    assert exhibition_count == 879
-    assert gifa_id_count == 879
+    assert companies == 3
+    assert participations == 3
+    assert dict(exhibition) == {
+        "event_name": "GIFA",
+        "edition": 2027,
+        "event_code": "GMTN2027.gifa",
+    }
+    assert updated_location == "Hall 15 / F25"
+
+
+def test_historical_gifa_2023_sync_fails_without_archive():
+    import pytest
+
+    with pytest.raises(RuntimeError, match="archived data source"):
+        scraper.sync_gifa_2023()
 
 def test_sync_event_accepts_different_exhibitions(
     tmp_path,
@@ -210,10 +260,14 @@ def test_generic_event_sync_uses_generic_fetcher(
         }
     ]
 
+    def fake_fetch_exhibitors_by_event(event_label):
+        assert event_label == "GIFA 2027"
+        return records
+
     monkeypatch.setattr(
         scraper,
         "fetch_exhibitors_by_event",
-        lambda event_label: records,
+        fake_fetch_exhibitors_by_event,
     )
 
     result = scraper.sync_event_from_api(

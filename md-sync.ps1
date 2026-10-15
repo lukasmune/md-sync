@@ -8,7 +8,7 @@ switch ($Command) {
         python -m pytest -q
     }
     "smoke" {
-        python -c "from scraper import fetch_directory_letter, filter_exhibitors_by_event; records=fetch_directory_letter('a'); exhibitors=filter_exhibitors_by_event(records, 'GIFA 2023'); print('directory records:', len(records)); print('GIFA 2023 profiles:', len(exhibitors))"
+        python -c "from scraper import fetch_directory_letter, filter_exhibitors_by_event; from config import EVENTS; config=EVENTS['GIFA']; records=fetch_directory_letter('a', config); exhibitors=filter_exhibitors_by_event(records, config['event_label']); print('GIFA', config['edition'], 'directory records:', len(records), 'matching profiles:', len(exhibitors))"
     }
     "sync" {
         python -c "from scraper import sync_configured_events; sync_configured_events()"

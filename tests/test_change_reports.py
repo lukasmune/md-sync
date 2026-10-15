@@ -17,7 +17,7 @@ def _record(exh="E1", name="Acme GmbH", **values):
         "location": "Hall 1 / A1",
         "premium": False,
         "tags": [],
-        "eventIcons": [{"label": "GIFA 2023"}],
+        "eventIcons": [{"label": "GIFA 2027"}],
     }
     record.update(values)
     return record
@@ -72,7 +72,7 @@ def test_batch_sync_creates_one_report_per_affected_edition(
     report_context, monkeypatch, capsys
 ):
     records = {
-        "GIFA 2023": [_record(exh="GIFA-1")],
+        "GIFA 2027": [_record(exh="GIFA-1")],
         "METEC 2023": [_record(exh="METEC-1", name="Metal GmbH")],
     }
     monkeypatch.setattr(
@@ -88,7 +88,7 @@ def test_batch_sync_creates_one_report_per_affected_edition(
     metec_reports = list((report_context / "METEC").glob("sync_changes_*.xlsx"))
     assert len(gifa_reports) == 1
     assert len(metec_reports) == 1
-    assert "GIFA 2023: New companies: 1 | New participations: 1 | Updated records: 0 | Changed fields: 0" in output
+    assert "GIFA 2027: New companies: 1 | New participations: 1 | Updated records: 0 | Changed fields: 0" in output
     assert "METEC 2023: New companies: 1 | New participations: 1 | Updated records: 0 | Changed fields: 0" in output
     assert "Change report:" in output
 
@@ -101,7 +101,7 @@ def test_batch_sync_creates_one_report_per_affected_edition(
 def test_batch_sync_prints_no_changes_for_unchanged_editions(
     report_context, monkeypatch, capsys
 ):
-    records = {"GIFA 2023": [_record(exh="GIFA-1")]}
+    records = {"GIFA 2027": [_record(exh="GIFA-1")]}
     monkeypatch.setattr(
         scraper,
         "fetch_exhibitors_by_event",

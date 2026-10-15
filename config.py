@@ -17,7 +17,9 @@ GIFA_BASE_URL = (
 GIFA_DOMAIN = "www.gifa.com"
 FINDER_BASE_URL = "https://finder.messe-duesseldorf.de/vis-api/vis/v1"
 
-GIFA_EVENT_ID = "GMTN2023.gifa"
+GIFA_EDITION = 2027
+GIFA_EVENT_LABEL = f"GIFA {GIFA_EDITION}"
+GIFA_EVENT_ID = f"GMTN{GIFA_EDITION}.gifa"
 
 REQUEST_TIMEOUT = 30
 PROFILE_REQUEST_RETRIES = 4
@@ -35,8 +37,8 @@ EVENTS = {
         "base_url": GIFA_BASE_URL,
         "domain": GIFA_DOMAIN,
         "event_code": GIFA_EVENT_ID,
-        "event_label": "GIFA 2023",
-        "edition": 2023,
+        "event_label": GIFA_EVENT_LABEL,
+        "edition": GIFA_EDITION,
         "enrich_profiles": True,
     },
     "METEC": {

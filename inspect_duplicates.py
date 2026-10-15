@@ -1,10 +1,15 @@
 from collections import defaultdict
 
+from config import EVENTS
 from normalizer import normalize_company_name
-from scraper import fetch_gifa_2023_exhibitors
+from scraper import fetch_exhibitors_by_event
 
 
-exhibitors = fetch_gifa_2023_exhibitors()
+gifa_config = EVENTS["GIFA"]
+exhibitors = fetch_exhibitors_by_event(
+    gifa_config["event_label"],
+    event_config=gifa_config,
+)
 
 groups = defaultdict(list)
 

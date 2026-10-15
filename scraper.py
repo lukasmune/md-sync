@@ -12,9 +12,6 @@ from config import (
     FINDER_BASE_URL,
     PROFILE_REQUEST_DELAY,
     PROFILE_REQUEST_RETRIES,
-    GIFA_BASE_URL,
-    GIFA_DOMAIN,
-    GIFA_EVENT_ID,
     REQUEST_TIMEOUT,
 )
 
@@ -48,7 +45,12 @@ def fetch_directory_letter(letter, event_config=None):
         )
         if response.status_code != 429:
             response.raise_for_status()
-            return response.json()
+            records = response.json()
+            if not isinstance(records, list):
+                raise ValueError(
+                    f"Expected a directory record list from {url}"
+                )
+            return records
 
         if attempt == DIRECTORY_REQUEST_RETRIES:
             response.raise_for_status()
@@ -69,13 +71,17 @@ def filter_exhibitors_by_event(records, event_label):
     exhibitors = []
 
     for record in records:
+        if not isinstance(record, dict):
+            continue
         if record.get("type") != "profile":
             continue
 
-        event_icons = record.get("eventIcons", [])
+        event_icons = record.get("eventIcons")
+        if not isinstance(event_icons, list):
+            continue
 
         if any(
-            icon.get("label") == event_label
+            isinstance(icon, dict) and icon.get("label") == event_label
             for icon in event_icons
         ):
             exhibitors.append(record)
@@ -182,12 +188,12 @@ def enrich_exhibitor_record(record, event_config):
             "website": next(
                 (
                     link.get("link")
-                    for link in profile.get("links", [])
-                    if link.get("link")
+                    for link in (profile.get("links") or [])
+                    if isinstance(link, dict) and link.get("link")
                 ),
                 None,
             ),
-            "categories": profile.get("categories", []),
+            "categories": profile.get("categories") or [],
         }
     )
     address = profile.get("profileAddress") or {}
@@ -200,9 +206,12 @@ def enrich_exhibitor_record(record, event_config):
 
 
 def fetch_gifa_2023_exhibitors():
-    """Fetch and return all GIFA 2023 exhibitor profile records."""
+    """Reject live lookups for historical records absent from the API."""
 
-    return fetch_exhibitors_by_event("GIFA 2023")
+    raise RuntimeError(
+        "The live directory does not provide historical GIFA 2023 records; "
+        "use an archived data source for that edition."
+    )
 
 
 def get_event_config(event_name):
@@ -303,10 +312,8 @@ def _report_run_results(run_id, changes, emit_summary=True):
                 print(
                     f"{event_name} {edition}: "
                     f"New companies: {counts['new_company_count']} | "
-                    f"New participations: "
-                    f"{counts['new_participation_count']} | "
-                    f"Updated records: "
-                    f"{counts['updated_record_count']} | "
+                    f"New participations: {counts['new_participation_count']} | "
+                    f"Updated records: {counts['updated_record_count']} | "
                     f"Changed fields: {counts['changed_field_count']}"
                 )
                 print(f"Change report: {report_path}")
@@ -385,16 +392,11 @@ def sync_configured_event(event_name):
 
 
 def sync_gifa_2023():
-    """
-    Fetch GIFA 2023 exhibitors and synchronize them
-    into the local database.
-    """
+    """Reject live synchronization of historical data not present in the API."""
 
-    return sync_event_from_api(
-        event_name="GIFA",
-        edition=2023,
-        event_code=GIFA_EVENT_ID,
-        event_label="GIFA 2023",
+    raise RuntimeError(
+        "The live directory does not provide historical GIFA 2023 records; "
+        "use an archived data source for that edition."
     )
 
 
