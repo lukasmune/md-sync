@@ -73,7 +73,13 @@ def test_batch_sync_creates_one_report_per_affected_edition(
 ):
     records = {
         "GIFA 2027": [_record(exh="GIFA-1")],
-        "METEC 2023": [_record(exh="METEC-1", name="Metal GmbH")],
+        "METEC 2027": [
+            _record(
+                exh="METEC-1",
+                name="Metal GmbH",
+                eventIcons=[{"label": "METEC 2027"}],
+            )
+        ],
     }
     monkeypatch.setattr(
         scraper,
@@ -89,7 +95,7 @@ def test_batch_sync_creates_one_report_per_affected_edition(
     assert len(gifa_reports) == 1
     assert len(metec_reports) == 1
     assert "GIFA 2027: New companies: 1 | New participations: 1 | Updated records: 0 | Changed fields: 0" in output
-    assert "METEC 2023: New companies: 1 | New participations: 1 | Updated records: 0 | Changed fields: 0" in output
+    assert "METEC 2027: New companies: 1 | New participations: 1 | Updated records: 0 | Changed fields: 0" in output
     assert "Change report:" in output
 
     for report in (gifa_reports + metec_reports):

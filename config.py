@@ -17,7 +17,8 @@ GIFA_BASE_URL = (
 GIFA_DOMAIN = "www.gifa.com"
 FINDER_BASE_URL = "https://finder.messe-duesseldorf.de/vis-api/vis/v1"
 
-GIFA_EDITION = 2027
+GMTN_EDITION = 2027
+GIFA_EDITION = GMTN_EDITION
 GIFA_EVENT_LABEL = f"GIFA {GIFA_EDITION}"
 GIFA_EVENT_ID = f"GMTN{GIFA_EDITION}.gifa"
 
@@ -44,25 +45,25 @@ EVENTS = {
     "METEC": {
         "base_url": GIFA_BASE_URL,
         "domain": "www.metec.com",
-        "event_code": "GMTN2023.metec",
-        "event_label": "METEC 2023",
-        "edition": 2023,
+        "event_code": f"GMTN{GMTN_EDITION}.metec",
+        "event_label": f"METEC {GMTN_EDITION}",
+        "edition": GMTN_EDITION,
         "enrich_profiles": True,
     },
     "THERMPROCESS": {
         "base_url": GIFA_BASE_URL,
         "domain": "www.thermprocess-expo.com",
-        "event_code": "GMTN2023.thermpro",
-        "event_label": "THERMPROCESS 2023",
-        "edition": 2023,
+        "event_code": f"GMTN{GMTN_EDITION}.thermpro",
+        "event_label": f"THERMPROCESS {GMTN_EDITION}",
+        "edition": GMTN_EDITION,
         "enrich_profiles": True,
     },
     "NEWCAST": {
         "base_url": GIFA_BASE_URL,
         "domain": "www.newcast.com",
-        "event_code": "GMTN2023.newcast",
-        "event_label": "NEWCAST 2023",
-        "edition": 2023,
+        "event_code": f"GMTN{GMTN_EDITION}.newcast",
+        "event_label": f"NEWCAST {GMTN_EDITION}",
+        "edition": GMTN_EDITION,
         "enrich_profiles": True,
     },
 }

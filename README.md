@@ -404,6 +404,11 @@ Shared API defaults and the event-specific `EVENTS` mapping are defined in
 - `GIFA_EDITION = 2027`
 - `GIFA_EVENT_LABEL = "GIFA 2027"`
 - `GIFA_EVENT_ID = "GMTN2027.gifa"`
+- `GMTN_EDITION = 2027` — shared by the configured GIFA, METEC,
+  THERMPROCESS, and NEWCAST 2027 editions.
+- The configured event codes are `GMTN2027.gifa`, `GMTN2027.metec`,
+  `GMTN2027.thermpro`, and `GMTN2027.newcast`; event labels are their
+  corresponding fair names followed by `2027`.
 - `REQUEST_TIMEOUT = 30`
 - `DIRECTORY_LETTERS = "abcdefghijklmnopqrstuvwxyz"`
 - `EVENTS` contains GIFA, METEC, THERMPROCESS, and NEWCAST configurations.
@@ -412,6 +417,11 @@ Shared API defaults and the event-specific `EVENTS` mapping are defined in
 edition. The live directory is not a historical GIFA 2023 source; the legacy
 `fetch_gifa_2023_exhibitors()` and `sync_gifa_2023()` helpers fail explicitly
 until an archived source is available.
+
+All four configured fair hosts use the same directory API payload. Each
+profile's `eventIcons` labels identify its fair association, and synchronization
+filters those labels before writing the fair's participation. The current
+source snapshot did not show profiles associated with more than one fair.
 
 ## Running the Project
 
