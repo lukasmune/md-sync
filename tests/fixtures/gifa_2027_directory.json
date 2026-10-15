@@ -1,0 +1,62 @@
+[
+  {
+    "type": "profile",
+    "exh": "gifa2027.001",
+    "exhSeoId": "SEO001",
+    "name": "Example Foundry GmbH",
+    "country": "Germany",
+    "city": "Düsseldorf",
+    "location": "Hall 15 / F24",
+    "premium": false,
+    "tags": [],
+    "eventIcons": [{"label": "GIFA 2027"}],
+    "coExhibitors": [
+      {
+        "type": "profile",
+        "exh": "gifa2027.co1",
+        "exhSeoId": "SEOCO1",
+        "name": "Example Co-exhibitor GmbH"
+      }
+    ]
+  },
+  {
+    "type": "profile",
+    "exh": "gifa2027.001",
+    "exhSeoId": "SEO001",
+    "name": "Example Foundry GmbH",
+    "location": "Hall 15 / F25",
+    "eventIcons": [{"label": "GIFA 2027"}]
+  },
+  {
+    "type": "profile",
+    "exh": "gifa2027.002",
+    "name": "Optional Data GmbH",
+    "eventIcons": [{"label": "GIFA 2027"}]
+  },
+  {
+    "type": "profile",
+    "exh": "metec2027.001",
+    "name": "Unrelated METEC GmbH",
+    "eventIcons": [{"label": "METEC 2027"}]
+  },
+  {
+    "type": "trademark",
+    "name": "Excluded trademark",
+    "eventIcons": [{"label": "GIFA 2027"}]
+  },
+  {
+    "type": "profile",
+    "name": "Missing event icons"
+  },
+  {
+    "type": "profile",
+    "name": "Null event icons",
+    "eventIcons": null
+  },
+  {
+    "type": "profile",
+    "name": "Unexpected event icons",
+    "eventIcons": [null, "GIFA 2027"]
+  },
+  null
+]

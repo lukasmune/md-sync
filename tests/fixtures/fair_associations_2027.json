@@ -1,0 +1,35 @@
+[
+  {
+    "type": "profile",
+    "exh": "gifa-only",
+    "name": "GIFA-only exhibitor",
+    "eventIcons": [{"label": "GIFA 2027"}]
+  },
+  {
+    "type": "profile",
+    "exh": "metec-only",
+    "name": "METEC-only exhibitor",
+    "eventIcons": [{"label": "METEC 2027"}]
+  },
+  {
+    "type": "profile",
+    "exh": "thermprocess-only",
+    "name": "THERMPROCESS-only exhibitor",
+    "eventIcons": [{"label": "THERMPROCESS 2027"}]
+  },
+  {
+    "type": "profile",
+    "exh": "newcast-only",
+    "name": "NEWCAST-only exhibitor",
+    "eventIcons": [{"label": "NEWCAST 2027"}]
+  },
+  {
+    "type": "profile",
+    "exh": "shared-gifa-metec",
+    "name": "Shared GIFA METEC GmbH",
+    "eventIcons": [
+      {"label": "GIFA 2027"},
+      {"label": "METEC 2027"}
+    ]
+  }
+]
