@@ -19,6 +19,9 @@ exports/
 data/
 archive/
 
+# Agent instructions
+AGENTS.md
+
 # OS / editor files
 .DS_Store
 Thumbs.db
