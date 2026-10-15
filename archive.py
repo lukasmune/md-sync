@@ -20,6 +20,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -255,11 +256,34 @@ def export_archive(fair, edition, database_path, root=DEFAULT_ARCHIVE_ROOT):
         (staging / MANIFEST_NAME).write_bytes(
             _dump(manifest, sort_keys=True) + b"\n"
         )
-        staging.rename(target)
+        _rename_staging(staging, target)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return target
+
+
+RENAME_ATTEMPTS = 5
+RENAME_DELAY_SECONDS = 0.2
+
+
+def _rename_staging(staging, target):
+    """Rename the staging directory, retrying transient Windows lock errors.
+
+    Only PermissionError is retried, and never when the target already exists,
+    so an existing archive can never be replaced. The final error is re-raised.
+    """
+
+    for attempt in range(1, RENAME_ATTEMPTS + 1):
+        if target.exists():
+            raise ArchiveError(f"Archive already exists: {target}")
+        try:
+            staging.rename(target)
+            return
+        except PermissionError:
+            if attempt == RENAME_ATTEMPTS:
+                raise
+            time.sleep(RENAME_DELAY_SECONDS)
 
 
 # ----------------------------------------------------------------- validation

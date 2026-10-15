@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -138,6 +139,76 @@ def test_export_is_immutable_and_read_only(tmp_path, source_db):
 
     assert target.is_dir()
     assert source_db.read_bytes() == before
+
+
+def test_export_retries_transient_rename_permission_error(
+    tmp_path, source_db, monkeypatch
+):
+    real_rename = Path.rename
+    calls = {"count": 0}
+
+    def flaky(self, target):
+        if self.name.startswith(".staging-"):
+            calls["count"] += 1
+            if calls["count"] < 3:
+                raise PermissionError(5, "Access is denied")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky)
+    monkeypatch.setattr(archive.time, "sleep", lambda _: None)
+
+    result = archive.export_archive("GIFA", 2023, source_db, tmp_path / "a")
+
+    assert calls["count"] == 3
+    assert archive.load_archive(result)[0]["fair"] == "GIFA"
+    assert [p.name for p in result.parent.iterdir()] == ["2023"]
+
+
+def test_export_persistent_rename_failure_raises_and_cleans_up(
+    tmp_path, source_db, monkeypatch
+):
+    calls = {"count": 0}
+
+    def locked(self, target):
+        calls["count"] += 1
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(Path, "rename", locked)
+    monkeypatch.setattr(archive.time, "sleep", lambda _: None)
+
+    with pytest.raises(PermissionError):
+        archive.export_archive("GIFA", 2023, source_db, tmp_path / "a")
+
+    assert calls["count"] == archive.RENAME_ATTEMPTS
+    assert list((tmp_path / "a" / "GIFA").iterdir()) == []
+
+
+def test_rename_does_not_retry_other_errors(tmp_path, source_db, monkeypatch):
+    calls = {"count": 0}
+
+    def broken(self, target):
+        calls["count"] += 1
+        raise OSError("disk failure")
+
+    monkeypatch.setattr(Path, "rename", broken)
+    monkeypatch.setattr(archive.time, "sleep", lambda _: None)
+
+    with pytest.raises(OSError, match="disk failure"):
+        archive.export_archive("GIFA", 2023, source_db, tmp_path / "a")
+
+    assert calls["count"] == 1
+
+
+def test_rename_never_replaces_existing_archive(tmp_path, gifa_archive):
+    marker = gifa_archive / "marker.txt"
+    marker.write_text("keep", encoding="utf-8")
+    staging = gifa_archive.parent / ".staging-test"
+    staging.mkdir()
+
+    with pytest.raises(archive.ArchiveError):
+        archive._rename_staging(staging, gifa_archive)
+
+    assert marker.read_text(encoding="utf-8") == "keep"
 
 
 def test_export_rejects_unknown_exhibition(tmp_path, source_db):
