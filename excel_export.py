@@ -9,6 +9,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 from config import CHANGES_DIR
+from country_codes import country_code
 from product_groups import (
     canonicalize_gifa_product_groups,
     GIFA_PRODUCT_GROUP_COLUMNS,
@@ -401,7 +402,8 @@ def export_change_report(
     }
 
     new_participations.append([
-        "Company Name", "Country", "City", "Website", "Email", "Telephone",
+        "Company Name", "Country", "Country Code", "City", "Website", "Email",
+        "Telephone",
         "New Company", "Exhibition", "Edition", "Hall", "Stand",
         "Location", "Premium", "Exhibitor ID", "Exhibition SEO ID",
         "Exhibitor Role",
@@ -409,7 +411,8 @@ def export_change_report(
     for key, row in new_participation_rows.items():
         details = company_details[key]
         new_participations.append([
-            row["company_name"], details["country"], details["city"],
+            row["company_name"], details["country"],
+            country_code(details["country"]), details["city"],
             details["website"], details["email"], details["telephone"],
             "Yes" if row["company_id"] in new_company_rows else "No",
             row["event_name"], row["edition"],
@@ -429,14 +432,16 @@ def export_change_report(
         ])
 
     all_companies.append([
-        "Company Name", "Country", "City", "Website", "Email", "Telephone",
+        "Company Name", "Country", "Country Code", "City", "Website", "Email",
+        "Telephone",
         "Exhibition", "Edition", "Hall", "Stand", "Location", "Premium",
         "Exhibitor ID", "Exhibition SEO ID", "Exhibitor Role",
         "New in This Run",
     ])
     for row in participations:
         all_companies.append([
-            row["company_name"], row["country"], row["city"], row["website"],
+            row["company_name"], row["country"], country_code(row["country"]),
+            row["city"], row["website"],
             row["email"], row["telephone"], row["event_name"],
             row["edition"], row["hall"], row["stand"], row["location"],
             bool(row["premium"]), row["source_exhibitor_id"], row["seo_id"],
@@ -499,8 +504,8 @@ def _build_companies_sheet(
     """Build the companies worksheet."""
 
     headers = [
-        "Company ID", "Company Name", "Country", "City", "Website",
-        "Created At", "Updated At",
+        "Company ID", "Company Name", "Country", "Country Code", "City",
+        "Website", "Created At", "Updated At",
     ]
 
     worksheet.append(headers)
@@ -511,6 +516,7 @@ def _build_companies_sheet(
                 company["company_id"],
                 company["company_name"],
                 company["country"],
+                country_code(company["country"]),
                 company["city"],
                 company["website"],
                 company["created_at"],
@@ -560,6 +566,7 @@ def _build_records_sheet(
         "Company ID",
         "Company Name",
         "Country",
+        "Country Code",
         "City",
         "Website",
         "Company Created At",
@@ -594,6 +601,7 @@ def _build_records_sheet(
             record["company_id"],
             record["company_name"],
             record["country"],
+            country_code(record["country"]),
             record["city"],
             record["website"],
             record["company_created_at"],

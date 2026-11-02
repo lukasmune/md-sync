@@ -69,9 +69,9 @@ def test_known_company_in_new_edition_is_new_participation(report_context):
 
     assert workbook["Summary"]["B2"].value == 0
     assert workbook["Summary"]["B3"].value == 1
-    assert workbook["New Participations"]["H2"].value == "GIFA"
-    assert workbook["New Participations"]["I2"].value == 2027
-    assert workbook["New Participations"]["G2"].value == "No"
+    assert workbook["New Participations"]["I2"].value == "GIFA"
+    assert workbook["New Participations"]["J2"].value == 2027
+    assert workbook["New Participations"]["H2"].value == "No"
 
 
 def test_batch_sync_creates_one_report_per_affected_edition(
