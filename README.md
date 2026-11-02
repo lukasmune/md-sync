@@ -389,9 +389,13 @@ registers for this one counts as a new entry and appears as a new
 participation rather than a new company). Reports are stored in directories
 such as `exports/changes/GIFA/`, `exports/changes/METEC/`,
 `exports/changes/NEWCAST/`, and `exports/changes/THERMPROCESS/`, using the `sync_changes_<EDITION>_YYYY-MM-DD_HHMMSS.xlsx` pattern. Each workbook
-contains only that edition's `Summary`, `New Companies`, `New Participations`,
-and `Changed Data` worksheets with filters, frozen headers, readable column
-widths, exhibition names, and editions.
+contains only that edition's `Summary`, `New Participations`,
+`All Companies`, and `Changed Data` worksheets with filters, frozen headers,
+readable column widths, exhibition names, and editions. `New Participations`
+also carries the company details (country, city, website, email, telephone)
+and a `New Company` Yes/No flag. `All Companies` lists
+every company registered for that edition and flags the ones new in this run
+in the `New in This Run` column.
 
 At the end of a successful run the terminal prints one line for every synced
 edition: new-company, new-participation, updated-record, and changed-field

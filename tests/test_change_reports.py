@@ -45,11 +45,16 @@ def test_report_contains_new_company_and_participation(report_context):
 
     assert workbook["Summary"]["B2"].value == 1
     assert workbook["Summary"]["B3"].value == 1
-    assert workbook["New Companies"].max_row == 2
+    assert "New Companies" not in workbook.sheetnames
     assert workbook["New Participations"].max_row == 2
     participation_headers = [
         cell.value for cell in workbook["New Participations"][1]
     ]
+    assert {"Country", "City", "Website", "Email", "Telephone",
+            "New Company"} <= set(participation_headers)
+    assert next(workbook["New Participations"].iter_rows(
+        min_row=2, values_only=True
+    ))[participation_headers.index("New Company")] == "Yes"
     assert "Parent Exhibitor ID" not in participation_headers
     assert "Tags" not in participation_headers
 
@@ -64,8 +69,9 @@ def test_known_company_in_new_edition_is_new_participation(report_context):
 
     assert workbook["Summary"]["B2"].value == 0
     assert workbook["Summary"]["B3"].value == 1
-    assert workbook["New Participations"]["B2"].value == "GIFA"
-    assert workbook["New Participations"]["C2"].value == 2027
+    assert workbook["New Participations"]["H2"].value == "GIFA"
+    assert workbook["New Participations"]["I2"].value == 2027
+    assert workbook["New Participations"]["G2"].value == "No"
 
 
 def test_batch_sync_creates_one_report_per_affected_edition(
@@ -206,8 +212,26 @@ def test_multiple_changes_in_one_edition_are_consolidated(report_context):
     workbook = load_workbook(reports[0], read_only=True)
     assert workbook["Summary"]["B2"].value == 2
     assert workbook["Summary"]["B3"].value == 2
-    assert workbook["New Companies"].max_row == 3
     assert workbook["New Participations"].max_row == 3
+
+
+def test_report_contains_full_company_list_with_new_flag(report_context):
+    scraper.sync_event("GIFA", 2023, "GIFA2023", [_record(exh="E1")])
+    scraper.sync_event(
+        "GIFA", 2023, "GIFA2023",
+        [_record(exh="E1"), _record(exh="E2", name="Beta GmbH")],
+    )
+    reports = sorted((report_context / "GIFA").glob("sync_changes_*.xlsx"))
+    workbook = load_workbook(reports[-1], read_only=True)
+    sheet = workbook["All Companies"]
+    headers = [cell.value for cell in next(sheet.iter_rows())]
+    rows = [
+        dict(zip(headers, values))
+        for values in sheet.iter_rows(min_row=2, values_only=True)
+    ]
+
+    assert [row["Company Name"] for row in rows] == ["Acme GmbH", "Beta GmbH"]
+    assert [row["New in This Run"] for row in rows] == [None, "Yes"]
 
 
 def test_changed_values_are_reported_and_repeat_is_empty(report_context):

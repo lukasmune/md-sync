@@ -353,9 +353,9 @@ def export_change_report(
     workbook = Workbook()
     summary = workbook.active
     summary.title = "Summary"
-    new_companies = workbook.create_sheet("New Companies")
     new_participations = workbook.create_sheet("New Participations")
     changed_data = workbook.create_sheet("Changed Data")
+    all_companies = workbook.create_sheet("All Companies")
 
     summary_data = summarize_change_rows(changes)
     new_company_rows = summary_data["new_companies"]
@@ -377,23 +377,42 @@ def export_change_report(
     summary.column_dimensions["B"].width = 28
     summary["A1"].font = Font(bold=True)
 
-    new_companies.append([
-        "Company Name", "Country", "City", "Website", "Email", "Telephone"
-    ])
-    for row in new_company_rows.values():
-        new_companies.append([
-            row["company_name"], row["country"], row["city"], row["website"],
-            row["email"], row["telephone"],
-        ])
+    database.initialize_database()
+    with get_connection() as connection:
+        participations = connection.execute(
+            """
+            SELECT
+                ec.id AS exhibition_company_id,
+                c.name AS company_name, c.country, c.city, c.website,
+                c.email, c.telephone,
+                e.event_name, e.edition,
+                ec.hall, ec.stand, ec.location, ec.premium,
+                ec.source_exhibitor_id, ec.seo_id, ec.exhibitor_role
+            FROM exhibition_companies ec
+            JOIN companies c ON c.id = ec.company_id
+            JOIN exhibitions e ON e.id = ec.exhibition_id
+            WHERE UPPER(e.event_name) = ? AND e.edition = ?
+            ORDER BY c.name COLLATE NOCASE
+            """,
+            (event_name, changes[0]["edition"]),
+        ).fetchall()
+    company_details = {
+        row["exhibition_company_id"]: row for row in participations
+    }
 
     new_participations.append([
-        "Company Name", "Exhibition", "Edition", "Hall", "Stand",
+        "Company Name", "Country", "City", "Website", "Email", "Telephone",
+        "New Company", "Exhibition", "Edition", "Hall", "Stand",
         "Location", "Premium", "Exhibitor ID", "Exhibition SEO ID",
         "Exhibitor Role",
     ])
-    for row in new_participation_rows.values():
+    for key, row in new_participation_rows.items():
+        details = company_details[key]
         new_participations.append([
-            row["company_name"], row["event_name"], row["edition"],
+            row["company_name"], details["country"], details["city"],
+            details["website"], details["email"], details["telephone"],
+            "Yes" if row["company_id"] in new_company_rows else "No",
+            row["event_name"], row["edition"],
             row["hall"], row["stand"], row["location"], bool(row["premium"]),
             row["source_exhibitor_id"], row["seo_id"], row["exhibitor_role"],
         ])
@@ -409,10 +428,28 @@ def export_change_report(
             row["new_value"], row["changed_at"],
         ])
 
+    all_companies.append([
+        "Company Name", "Country", "City", "Website", "Email", "Telephone",
+        "Exhibition", "Edition", "Hall", "Stand", "Location", "Premium",
+        "Exhibitor ID", "Exhibition SEO ID", "Exhibitor Role",
+        "New in This Run",
+    ])
+    for row in participations:
+        all_companies.append([
+            row["company_name"], row["country"], row["city"], row["website"],
+            row["email"], row["telephone"], row["event_name"],
+            row["edition"], row["hall"], row["stand"], row["location"],
+            bool(row["premium"]), row["source_exhibitor_id"], row["seo_id"],
+            row["exhibitor_role"],
+            "Yes"
+            if row["exhibition_company_id"] in new_participation_rows
+            else "",
+        ])
+
     for worksheet, table_name in (
-        (new_companies, "NewCompaniesTable"),
         (new_participations, "NewParticipationsTable"),
         (changed_data, "ChangedDataTable"),
+        (all_companies, "AllCompaniesTable"),
     ):
         _format_data_sheet(worksheet, table_name)
     workbook.save(output_path)
