@@ -137,3 +137,131 @@ def test_export_event_is_limited_to_selected_edition(tmp_path, monkeypatch):
         "GIFA_2023.xlsx",
         "METEC_2023.xlsx",
     }
+
+
+def test_non_gifa_exports_mark_top_level_category_assignments(
+    tmp_path, monkeypatch
+):
+    import database
+    from excel_export import export_event
+
+    monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(database, "DATA_DIR", tmp_path)
+    database.initialize_database()
+
+    events = ("METEC", "NEWCAST", "THERMPROCESS")
+    for event in events:
+        exhibition_id = database.get_or_create_exhibition(
+            event, 2023, f"GMTN2023.{event.lower()}"
+        )
+        for suffix, root_label in (
+            ("A", "Production equipment"),
+            ("B", "Services"),
+        ):
+            database.sync_exhibitor(
+                {
+                    "exh": f"{event}-{suffix}",
+                    "name": f"{event} Company {suffix}",
+                    "categories": [
+                        {
+                            "id": f"{event}-category-{suffix}",
+                            "label": f"Category {suffix}",
+                            "hierarchy": [
+                                {
+                                    "id": f"{event}-root-{suffix}",
+                                    "label": root_label,
+                                },
+                                {
+                                    "id": f"{event}-child-{suffix}",
+                                    "label": f"Child {suffix}",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                exhibition_id,
+            )
+
+    for event in events:
+        path = export_event(event, 2023, tmp_path)
+        workbook = load_workbook(path, read_only=True)
+        sheet = workbook["Sales Leads"]
+        headers = [cell.value for cell in next(sheet.iter_rows())]
+        rows = [
+            dict(zip(headers, values))
+            for values in sheet.iter_rows(min_row=2, values_only=True)
+        ]
+
+        assert headers[-3:] == [
+            "Product Assignment Source",
+            "1. Production equipment",
+            "2. Services",
+        ]
+        assert len(rows) == 2
+        production_row = next(
+            row for row in rows
+            if row["Exhibitor ID"].endswith("-A")
+        )
+        services_row = next(
+            row for row in rows
+            if row["Exhibitor ID"].endswith("-B")
+        )
+        assert production_row["1. Production equipment"] == "x"
+        assert production_row["Product Assignment Source"] == (
+            "Current edition source"
+        )
+        assert production_row["2. Services"] in ("", None)
+        assert services_row["1. Production equipment"] in ("", None)
+        assert services_row["2. Services"] == "x"
+        assert services_row["Product Assignment Source"] == (
+            "Current edition source"
+        )
+        workbook.close()
+
+        next_edition_id = database.get_or_create_exhibition(
+            event, 2027, f"GMTN2027.{event.lower()}"
+        )
+        database.sync_exhibitor(
+            {
+                "exh": f"{event}-2027",
+                "name": f"{event} Company A",
+            },
+            next_edition_id,
+        )
+        database.sync_exhibitor(
+            {
+                "exh": f"{event}-2027-new",
+                "name": f"{event} New Company",
+            },
+            next_edition_id,
+        )
+        next_path = export_event(event, 2027, tmp_path)
+        next_workbook = load_workbook(next_path, read_only=True)
+        next_sheet = next_workbook["Sales Leads"]
+        next_headers = [cell.value for cell in next(next_sheet.iter_rows())]
+        next_rows = [
+            dict(zip(next_headers, values))
+            for values in next_sheet.iter_rows(min_row=2, values_only=True)
+        ]
+        assert next_headers[-3:] == [
+            "Product Assignment Source",
+            "1. Production equipment",
+            "2. Services",
+        ]
+        carried_row = next(
+            row for row in next_rows
+            if row["Exhibitor ID"].endswith("-2027")
+        )
+        new_row = next(
+            row for row in next_rows
+            if row["Exhibitor ID"].endswith("-2027-new")
+        )
+        assert carried_row["1. Production equipment"] == "x"
+        assert carried_row["2. Services"] in ("", None)
+        assert carried_row["Product Assignment Source"] == (
+            "2023 historical carry-forward"
+        )
+        assert new_row["1. Production equipment"] in ("", None)
+        assert new_row["2. Services"] in ("", None)
+        assert new_row["Product Assignment Source"] in ("", None)
+        next_workbook.close()

@@ -232,6 +232,7 @@ def sync_event(
     exhibitors,
     run_id=None,
     emit_summary=True,
+    confirm_export=None,
 ):
     """
     Synchronize a collection of exhibitor records for one exhibition.
@@ -268,6 +269,8 @@ def sync_event(
             run_id,
             changes,
             emit_summary=emit_summary,
+            confirm_export=confirm_export,
+            editions=[(event_name, edition)],
         )
 
     return {
@@ -277,52 +280,110 @@ def sync_event(
     }
 
 
-def _report_run_results(run_id, changes, emit_summary=True):
-    """Create edition reports and print counts from the same source rows."""
+def _prompt_export_changes():
+    """Ask whether to export changes; never block non-interactive runs."""
 
-    reports = []
+    if not sys.stdin or not sys.stdin.isatty():
+        return False
+    answer = input("Do you want to export changes? [y/N]: ")
+    return answer.strip().lower() in {"y", "yes", "j", "ja"}
+
+
+def _report_run_results(
+    run_id,
+    changes,
+    emit_summary=True,
+    confirm_export=None,
+    editions=(),
+):
+    """Report new company entries per edition.
+
+    Change reports are written automatically only for editions with new
+    exhibitor registrations. Editions with only updates are reported on the
+    terminal and exported only if ``confirm_export()`` returns true.
+    ``editions`` lists the (event name, edition) pairs covered by the run so
+    unchanged editions are reported too.
+    """
+
     grouped = {}
     for change in changes:
         key = (str(change["event_name"]).strip().upper(), change["edition"])
         grouped.setdefault(key, []).append(change)
+    for event_name, edition in editions:
+        grouped.setdefault((str(event_name).strip().upper(), edition), [])
 
+    reports = []
     timestamp = datetime.now().astimezone()
     summaries = []
     for (event_name, edition), edition_changes in grouped.items():
-        counts = summarize_change_rows(edition_changes)
-        report_path = export_change_report(
-            run_id,
-            edition_changes,
-            timestamp=timestamp,
+        counts = (
+            summarize_change_rows(edition_changes)
+            if edition_changes
+            else None
         )
-        reports.append(report_path)
-        summaries.append((event_name, edition, counts, report_path))
+        has_new_entries = bool(counts) and (
+            counts["new_company_count"] > 0
+            or counts["new_participation_count"] > 0
+        )
+        report_path = None
+        if has_new_entries:
+            report_path = export_change_report(
+                run_id,
+                edition_changes,
+                timestamp=timestamp,
+            )
+            reports.append(report_path)
+        summaries.append(
+            [event_name, edition, counts, report_path, edition_changes]
+        )
 
+    exportable = [
+        summary for summary in summaries
+        if summary[3] is None and summary[2]
+    ]
     if emit_summary:
-        if not summaries:
-            print("Sync completed. No changes detected.")
+        if not reports:
+            print("Sync completed. No new company entries.")
         else:
-            print("Sync completed. Changes detected.")
-            for index, (
-                event_name,
-                edition,
-                counts,
-                report_path,
-            ) in enumerate(summaries):
+            print("Sync completed. New company entries detected.")
+        for index, (event_name, edition, counts, report_path, _) in enumerate(
+            summaries
+        ):
+            if report_path is not None:
                 print(
                     f"{event_name} {edition}: "
                     f"New companies: {counts['new_company_count']} | "
-                    f"New participations: {counts['new_participation_count']} | "
+                    f"New participations: "
+                    f"{counts['new_participation_count']} | "
                     f"Updated records: {counts['updated_record_count']} | "
                     f"Changed fields: {counts['changed_field_count']}"
                 )
                 print(f"Change report: {report_path}")
-                if index < len(summaries) - 1:
-                    print()
-    return reports, summaries
+            elif counts:
+                print(
+                    f"{event_name} {edition}: No new company entries | "
+                    f"Updated records: {counts['updated_record_count']} | "
+                    f"Changed fields: {counts['changed_field_count']}"
+                )
+            else:
+                print(f"{event_name} {edition}: No new company entries")
+            if index < len(summaries) - 1:
+                print()
+
+        if exportable and (confirm_export or _prompt_export_changes)():
+            for summary in exportable:
+                summary[3] = export_change_report(
+                    run_id,
+                    summary[4],
+                    timestamp=timestamp,
+                )
+                reports.append(summary[3])
+                print(f"{summary[0]} {summary[1]} change report: {summary[3]}")
+
+    return reports, [tuple(summary[:4]) for summary in summaries]
 
 
-def sync_configured_events(event_names=None):
+def sync_configured_events(event_names=None, confirm_export=None):
     """Synchronize configured events as one run with edition reports."""
 
     selected = event_names or list(EVENTS)
@@ -350,7 +411,14 @@ def sync_configured_events(event_names=None):
         raise
 
     changes = get_change_history(run_id)
-    _report_run_results(run_id, changes)
+    _report_run_results(
+        run_id,
+        changes,
+        confirm_export=confirm_export,
+        editions=[
+            (name, get_event_config(name)["edition"]) for name in selected
+        ],
+    )
     return results
 
 
@@ -375,7 +443,7 @@ def sync_event_from_api(
     )
 
 
-def sync_configured_event(event_name):
+def sync_configured_event(event_name, confirm_export=None):
     """Fetch and synchronize one of the configured Messe Düsseldorf events."""
 
     config = get_event_config(event_name)
@@ -388,6 +456,7 @@ def sync_configured_event(event_name):
         edition=config["edition"],
         event_code=config["event_code"],
         exhibitors=exhibitors,
+        confirm_export=confirm_export,
     )
 
 

@@ -90,7 +90,7 @@ def test_all_configured_events_sync_only_their_source_associations(
         assert event_config in scraper.EVENTS.values()
         return {}
 
-    def fake_report_run_results(run_id, changes, emit_summary=True):
+    def fake_report_run_results(run_id, changes, emit_summary=True, **kwargs):
         assert run_id
         assert isinstance(changes, list)
         report_modes.append(emit_summary)
@@ -194,7 +194,7 @@ def test_sync_configured_event_uses_one_generic_pipeline(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "DATABASE_PATH", tmp_path / "test.db")
     monkeypatch.setattr(database, "DATA_DIR", tmp_path)
 
-    def no_op_report(run_id, changes, emit_summary=True):
+    def no_op_report(run_id, changes, emit_summary=True, **kwargs):
         assert run_id
         assert isinstance(changes, list)
         assert emit_summary is True

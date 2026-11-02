@@ -117,23 +117,68 @@ def test_batch_sync_prints_no_changes_for_unchanged_editions(
     capsys.readouterr()
     scraper.sync_configured_events(["GIFA"])
 
-    assert capsys.readouterr().out.strip() == (
-        "Sync completed. No changes detected."
-    )
+    output = capsys.readouterr().out
+    assert "Sync completed. No new company entries." in output
+    assert "GIFA 2027: No new company entries" in output
+    assert "Do you want to export changes?" not in output
     assert len(list((report_context / "GIFA").glob("sync_changes_*.xlsx"))) == 1
 
 
-def test_consecutive_changed_runs_keep_unique_report_files(report_context):
+def test_update_only_sync_exports_only_after_confirmation(
+    report_context, capsys
+):
     scraper.sync_event(
-        "GIFA", 2023, "GIFA2023", [_record(website="https://one.example")]
+        "GIFA", 2023, "GIFA2023", [_record(website="https://old.example")]
     )
+    capsys.readouterr()
+    updated = [_record(website="https://new.example")]
+    reports_dir = report_context / "GIFA"
+
     scraper.sync_event(
-        "GIFA", 2023, "GIFA2023", [_record(website="https://two.example")]
+        "GIFA", 2023, "GIFA2023", updated, confirm_export=lambda: False
     )
+    output = capsys.readouterr().out
+    assert "GIFA 2023: No new company entries | Updated records: 1" in output
+    assert len(list(reports_dir.glob("sync_changes_*.xlsx"))) == 1
+
     scraper.sync_event(
         "GIFA", 2023, "GIFA2023",
-        [_record(website="https://three.example")],
+        [_record(website="https://newer.example")],
+        confirm_export=lambda: True,
     )
+    assert len(list(reports_dir.glob("sync_changes_*.xlsx"))) == 2
+
+
+def test_batch_lists_every_edition_and_exports_only_new_entries(
+    report_context, monkeypatch, capsys
+):
+    records = {
+        "GIFA 2027": [_record(exh="GIFA-1")],
+        "METEC 2027": [],
+    }
+    monkeypatch.setattr(
+        scraper,
+        "fetch_exhibitors_by_event",
+        lambda label, event_config=None: records[label],
+    )
+
+    scraper.sync_configured_events(["GIFA", "METEC"], confirm_export=lambda: False)
+    output = capsys.readouterr().out
+
+    assert "Sync completed. New company entries detected." in output
+    assert "GIFA 2027: New companies: 1" in output
+    assert "METEC 2027: No new company entries" in output
+    assert len(list((report_context / "GIFA").glob("sync_changes_*.xlsx"))) == 1
+    assert not list((report_context / "METEC").glob("sync_changes_*.xlsx"))
+
+
+def test_consecutive_changed_runs_keep_unique_report_files(report_context):
+    for site in ("one", "two", "three"):
+        scraper.sync_event(
+            "GIFA", 2023, "GIFA2023",
+            [_record(website=f"https://{site}.example")],
+            confirm_export=lambda: True,
+        )
 
     reports = list((report_context / "GIFA").glob("sync_changes_*.xlsx"))
     assert len(reports) == 3
@@ -173,6 +218,7 @@ def test_changed_values_are_reported_and_repeat_is_empty(report_context):
     scraper.sync_event(
         "GIFA", 2023, "GIFA2023",
         [_record(website="https://new.example", location="Hall 2 / B2")],
+        confirm_export=lambda: True,
     )
     reports = sorted((report_context / "GIFA").glob("sync_changes_*.xlsx"))
     workbook = load_workbook(reports[-1], read_only=True)

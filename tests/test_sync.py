@@ -21,7 +21,7 @@ def test_configured_gifa_sync_uses_fixture_and_config_values(
         fetch_configs.append(event_config)
         return gifa_2027_records
 
-    def fake_report_run_results(run_id, changes, emit_summary=True):
+    def fake_report_run_results(run_id, changes, emit_summary=True, **kwargs):
         assert run_id
         assert isinstance(changes, list)
         assert emit_summary is True

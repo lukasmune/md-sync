@@ -1,6 +1,7 @@
-from pathlib import Path
+import json
 import re
 import sqlite3
+from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
@@ -83,6 +84,7 @@ def export_exhibition_to_excel(
         exhibition_records = connection.execute(
             """
             SELECT
+                ec.id AS exhibition_company_id,
                 c.id AS company_id,
                 c.name AS company_name,
                 c.country,
@@ -144,6 +146,69 @@ def export_exhibition_to_excel(
             (exhibition["id"],),
         ).fetchall()
 
+        category_assignments = {}
+        historical_category_assignments = {}
+        category_participations = set()
+        category_options = set()
+        category_hierarchies = connection.execute(
+            """
+            SELECT
+                ecc.exhibition_company_id,
+                ec.company_id,
+                ec.exhibition_id,
+                e.edition,
+                pc.hierarchy_json
+            FROM exhibition_company_categories ecc
+            JOIN product_categories pc
+                ON pc.id = ecc.product_category_id
+            JOIN exhibition_companies ec
+                ON ec.id = ecc.exhibition_company_id
+            JOIN exhibitions e
+                ON e.id = ec.exhibition_id
+            WHERE e.event_name = ?
+            """,
+            (exhibition["event_name"],),
+        ).fetchall()
+        for row in category_hierarchies:
+            if row["exhibition_id"] == exhibition["id"]:
+                category_participations.add(
+                    row["exhibition_company_id"]
+                )
+            hierarchy = json.loads(row["hierarchy_json"] or "[]")
+            if not hierarchy or not isinstance(hierarchy[0], dict):
+                continue
+            label = hierarchy[0].get("label")
+            if label:
+                category_options.add(label)
+                if row["edition"] == 2023:
+                    historical_category_assignments.setdefault(
+                        row["company_id"], set()
+                    ).add(label)
+                if row["exhibition_id"] == exhibition["id"]:
+                    category_assignments.setdefault(
+                        row["exhibition_company_id"], set()
+                    ).add(label)
+        category_assignments = {
+            participation_id: tuple(sorted(
+                labels,
+                key=lambda label: (
+                    normalize_product_group_label(label),
+                    label.casefold(),
+                ),
+            ))
+            for participation_id, labels in category_assignments.items()
+        }
+        historical_category_assignments = {
+            company_id: tuple(sorted(
+                labels,
+                key=lambda label: (
+                    normalize_product_group_label(label),
+                    label.casefold(),
+                ),
+            ))
+            for company_id, labels in historical_category_assignments.items()
+        }
+
     workbook = Workbook()
 
     summary_sheet = workbook.active
@@ -166,7 +231,13 @@ def export_exhibition_to_excel(
 
     _build_records_sheet(
         records_sheet,
+        exhibition["event_name"],
+        exhibition["edition"],
         exhibition_records,
+        category_options,
+        category_assignments,
+        historical_category_assignments,
+        category_participations,
     )
 
     workbook.save(output_path)
@@ -356,7 +427,7 @@ def _build_summary_sheet(
 ):
     """Build the summary worksheet."""
 
-    worksheet["A1"] = "Messe Düsseldorf Sales Export"
+    worksheet["A1"] = "MD Sales Export"
     worksheet["A1"].font = Font(
         bold=True,
         size=16,
@@ -418,10 +489,36 @@ def _build_companies_sheet(
 
 def _build_records_sheet(
     worksheet,
+    event_name,
+    edition,
     records,
+    category_options,
+    category_assignments,
+    historical_category_assignments,
+    category_participations,
 ):
     """Build the exhibition records worksheet."""
 
+    is_gifa = event_name == "GIFA"
+    assignment_groups = (
+        GIFA_PRODUCT_GROUPS
+        if is_gifa
+        else tuple(sorted(
+            category_options,
+            key=lambda group: (
+                normalize_product_group_label(group),
+                group.casefold(),
+            ),
+        ))
+    )
+    assignment_columns = (
+        GIFA_PRODUCT_GROUP_COLUMNS
+        if is_gifa
+        else tuple(
+            f"{index}. {group}"
+            for index, group in enumerate(assignment_groups, start=1)
+        )
+    )
     headers = [
         "Company ID",
         "Company Name",
@@ -447,57 +544,104 @@ def _build_records_sheet(
         "First Seen",
         "Last Seen",
         "Last Changed",
-    ] + list(GIFA_PRODUCT_GROUP_COLUMNS)
+    ] + (
+        ["Product Assignment Source"]
+        if not is_gifa
+        else []
+    ) + list(assignment_columns)
 
     worksheet.append(headers)
 
     for record in records:
-        worksheet.append(
-            [
-                record["company_id"],
-                record["company_name"],
-                record["country"],
-                record["city"],
-                record["website"],
-                record["company_created_at"],
-                record["company_updated_at"],
-                record["event_name"],
-                record["edition"],
-                record["event_code"],
-                record["exhibitor_id"],
-                record["exh_seo_id"],
-                record["exhibitor_role"],
-                record["hall"],
-                record["stand"],
-                record["location"],
-                bool(record["premium"]),
-                record["email"],
-                record["telephone"],
-                record["product_categories"],
-                record["product_groups"],
-                record["first_seen_at"],
-                record["last_seen_at"],
-                record["changed_at"],
-            ] + [
-                "x"
-                if (
-                    record["event_name"] == "GIFA"
-                    and normalize_product_group_label(group)
-                    in {
-                        normalize_product_group_label(value)
-                        for value in canonicalize_gifa_product_groups(
-                            str(record["product_groups"] or "").split("; ")
-                        )
-                    }
-                )
-                else ""
-                for group in GIFA_PRODUCT_GROUPS
-            ]
+        row_values = [
+            record["company_id"],
+            record["company_name"],
+            record["country"],
+            record["city"],
+            record["website"],
+            record["company_created_at"],
+            record["company_updated_at"],
+            record["event_name"],
+            record["edition"],
+            record["event_code"],
+            record["exhibitor_id"],
+            record["exh_seo_id"],
+            record["exhibitor_role"],
+            record["hall"],
+            record["stand"],
+            record["location"],
+            bool(record["premium"]),
+            record["email"],
+            record["telephone"],
+            record["product_categories"],
+            record["product_groups"],
+            record["first_seen_at"],
+            record["last_seen_at"],
+            record["changed_at"],
+        ]
+        assignment_values, assignment_source = _product_assignment_values(
+            record,
+            edition,
+            assignment_groups,
+            category_assignments,
+            historical_category_assignments,
+            category_participations,
         )
+        if not is_gifa:
+            row_values.append(assignment_source)
+        row_values.extend(assignment_values)
+        worksheet.append(row_values)
 
     _format_data_sheet(
         worksheet,
         table_name="ParticipationHistoryTable",
+    )
+
+
+def _product_assignment_values(
+    record,
+    edition,
+    assignment_groups,
+    category_assignments,
+    historical_category_assignments,
+    category_participations,
+):
+    if record["event_name"] == "GIFA":
+        assigned_groups = canonicalize_gifa_product_groups(
+            str(record["product_groups"] or "").split("; ")
+        )
+        assignment_source = None
+    else:
+        assigned_groups = category_assignments.get(
+            record["exhibition_company_id"], ()
+        )
+        assignment_source = (
+            "Current edition source"
+            if record["exhibition_company_id"] in category_participations
+            else None
+        )
+        if (
+            not assigned_groups
+            and edition == 2027
+            and record["exhibition_company_id"] not in category_participations
+        ):
+            assigned_groups = historical_category_assignments.get(
+                record["company_id"], ()
+            )
+            if assigned_groups:
+                assignment_source = "2023 historical carry-forward"
+    normalized_assignments = {
+        normalize_product_group_label(group)
+        for group in assigned_groups
+    }
+    return (
+        [
+            "x"
+            if normalize_product_group_label(group) in normalized_assignments
+            else ""
+            for group in assignment_groups
+        ],
+        assignment_source,
     )
 
 
