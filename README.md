@@ -407,6 +407,29 @@ edition without new entries still has updated data, the program asks
 editions never create empty reports, and a failed synchronization discards its
 provisional history and creates no report or success message.
 
+### Mailchimp upload list
+
+Internal exports (`.\md-sync.ps1 export` and the change reports) keep all
+collected data. The Mailchimp list is a separate workbook written with
+`.\md-sync.ps1 mailchimp` to `exports/mailchimp/mailchimp_<timestamp>.xlsx`,
+shaped like the "Sample Exhibitor List": an `Info INTERN` sheet (company
+details, exhibition, hall, stand, source report date) and an `Info Mailchimp`
+sheet (`Email`, `Company`, `Country`, `City`, `Tag Exhibition`, `Tag Hall`).
+
+- The current editions of all four fairs are included; one row per distinct
+  email address (lowercased). Companies sharing an address are merged into one
+  contact (names joined with ` / `, tags combined). Companies without a valid
+  email are left out.
+- Exported addresses are stored in the `mailchimp_exported_emails` table, so a
+  later run only contains addresses never exported before, and a contact is
+  never handed to Mailchimp twice. When nothing is new the command prints
+  `No new Mailchimp contacts` and writes no file.
+- An address already exported does not reappear when its company registers for
+  another fair; the new tag must be added in Mailchimp manually.
+- Run `.\md-sync.ps1 mailchimp-baseline` once before the first export to mark
+  contacts that are already in Mailchimp, so only later registrations are
+  exported.
+
 ## Historical Archives (reconstructed 2023)
 
 The live directories only serve the current (2027) editions. Historical editions are handled through separate, immutable archives in `archive/<FAIR>/<edition>/` (`manifest.json` + `exhibitors.json`; the folder is gitignored). They never affect the live-sync configuration.

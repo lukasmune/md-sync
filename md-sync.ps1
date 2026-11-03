@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("test", "smoke", "sync", "export", "check", "help")]
+    [ValidateSet("test", "smoke", "sync", "export", "mailchimp", "mailchimp-baseline", "check", "help")]
     [string]$Command = "help"
 )
 
@@ -19,6 +19,12 @@ switch ($Command) {
     "export" {
         python -c "from excel_export import export_database_to_excel; print(export_database_to_excel('exports'))"
     }
+    "mailchimp" {
+        python -c "from mailchimp_export import export_mailchimp_list; path = export_mailchimp_list(); print(path if path else 'No new Mailchimp contacts')"
+    }
+    "mailchimp-baseline" {
+        python -c "from mailchimp_export import mark_current_contacts_as_exported as m; print('Marked as already exported:', m())"
+    }
     "check" {
         python -m compileall -q .
         if ($LASTEXITCODE -eq 0) {
@@ -30,7 +36,9 @@ switch ($Command) {
         Write-Host "  test    Run the complete test suite"
         Write-Host "  smoke   Test the live GIFA API"
         Write-Host "  sync    Synchronize GIFA, METEC, THERMPROCESS, and NEWCAST records"
-        Write-Host "  export  Export records to Excel"
+        Write-Host "  export  Export records to Excel (internal, all data)"
+        Write-Host "  mailchimp  Write the Mailchimp upload list (new contacts only)"
+        Write-Host "  mailchimp-baseline  Mark all current contacts as already exported"
         Write-Host "  check   Compile Python and check the diff"
     }
 }
