@@ -1,6 +1,7 @@
 import requests
 import sys
 import time
+import os
 from datetime import datetime
 from uuid import uuid4
 
@@ -281,10 +282,14 @@ def sync_event(
 
 
 def _prompt_export_changes():
-    """Ask whether to export changes; never block non-interactive runs."""
+    """Skip optional exports during unattended runs."""
+
+    if os.environ.get("MD_SYNC_SKIP_EXPORT_PROMPT") == "1":
+        return False
 
     if not sys.stdin or not sys.stdin.isatty():
         return False
+
     answer = input("Do you want to export changes? [y/N]: ")
     return answer.strip().lower() in {"y", "yes", "j", "ja"}
 
