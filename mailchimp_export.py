@@ -13,9 +13,11 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 
 import database
 from config import EVENTS, EXPORTS_DIR
+from country_codes import country_code
 
 MAILCHIMP_DIR = EXPORTS_DIR / "mailchimp"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -98,7 +100,11 @@ def _mailchimp_row(email, rows):
     return [
         email,
         " / ".join(_unique(r["name"] for r in rows)),
-        next((r["country"] for r in rows if r["country"]), None),
+        next(
+            (country_code(r["country"]) for r in rows
+             if country_code(r["country"])),
+            None,
+        ),
         next((r["city"] for r in rows if r["city"]), None),
         ", ".join(_unique(
             f"{r['event_name'].upper()} {r['edition']}" for r in rows
@@ -112,6 +118,7 @@ def _write_sheet_header(worksheet, headers):
     for cell in worksheet[1]:
         cell.font = Font(bold=True)
     worksheet.freeze_panes = "A2"
+    worksheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
     for index in range(1, len(headers) + 1):
         worksheet.column_dimensions[
             worksheet.cell(row=1, column=index).column_letter

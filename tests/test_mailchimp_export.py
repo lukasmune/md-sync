@@ -54,6 +54,9 @@ def test_sheets_and_headers_match_sample(mailchimp_db):
     ]
     assert workbook["Info INTERN"]["M2"].value is not None
     assert _contacts(path)["info@acme.de"][4] == "METEC 2027"
+    assert _contacts(path)["info@acme.de"][2] == "DE"
+    assert workbook["Info Mailchimp"].auto_filter.ref == "A1:F1"
+    assert workbook["Info INTERN"].auto_filter.ref == "A1:M1"
 
 
 def test_shared_email_is_merged_and_missing_email_skipped(mailchimp_db):
