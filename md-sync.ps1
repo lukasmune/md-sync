@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("test", "smoke", "sync", "export", "mailchimp", "mailchimp-baseline", "check", "help")]
+    [ValidateSet("test", "smoke", "sync", "export", "mailchimp", "mailchimp-rebuild", "mailchimp-baseline", "check", "help")]
     [string]$Command = "help"
 )
 
@@ -22,6 +22,9 @@ switch ($Command) {
     "mailchimp" {
         python -c "from mailchimp_export import export_mailchimp_list; path = export_mailchimp_list(); print(path if path else 'No new Mailchimp contacts')"
     }
+    "mailchimp-rebuild" {
+        python -c "from mailchimp_export import rebuild_mailchimp_list; path = rebuild_mailchimp_list(); print(path if path else 'No earlier Mailchimp export to rebuild')"
+    }
     "mailchimp-baseline" {
         python -c "from mailchimp_export import mark_current_contacts_as_exported as m; print('Marked as already exported:', m())"
     }
@@ -38,6 +41,7 @@ switch ($Command) {
         Write-Host "  sync    Synchronize GIFA, METEC, THERMPROCESS, and NEWCAST records"
         Write-Host "  export  Export records to Excel (internal, all data)"
         Write-Host "  mailchimp  Write the Mailchimp upload list (new contacts only)"
+        Write-Host "  mailchimp-rebuild  Recreate the last Mailchimp list (log unchanged)"
         Write-Host "  mailchimp-baseline  Mark all current contacts as already exported"
         Write-Host "  check   Compile Python and check the diff"
     }

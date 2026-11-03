@@ -87,6 +87,23 @@ def test_contact_is_never_exported_twice(mailchimp_db):
     assert list(_contacts(path)) == ["info@beta.de"]
 
 
+def test_rebuild_recreates_last_export_without_changing_log(mailchimp_db):
+    assert mailchimp_export.rebuild_mailchimp_list(
+        output_dir=mailchimp_db
+    ) is None
+    _sync(_record("E1", "Acme GmbH", "info@acme.de"))
+    mailchimp_export.export_mailchimp_list(mailchimp_db)
+    _sync(
+        _record("E1", "Acme GmbH", "info@acme.de"),
+        _record("E2", "Beta GmbH", "info@beta.de"),
+    )
+
+    path = mailchimp_export.rebuild_mailchimp_list(output_dir=mailchimp_db)
+
+    assert list(_contacts(path)) == ["info@acme.de"]
+    assert list(mailchimp_export.pending_contacts()) == ["info@beta.de"]
+
+
 def test_baseline_marks_existing_contacts_without_file(mailchimp_db):
     _sync(_record("E1", "Acme GmbH", "info@acme.de"))
 

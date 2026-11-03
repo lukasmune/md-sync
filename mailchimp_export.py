@@ -144,23 +144,12 @@ def pending_contacts():
     }
 
 
-def export_mailchimp_list(output_dir=MAILCHIMP_DIR, timestamp=None):
-    """Write the upload workbook for contacts not exported before.
-
-    Returns the workbook path, or None when there is nothing new. The emails
-    are recorded as exported only after the file was saved.
-    """
-
-    contacts = pending_contacts()
-    if not contacts:
-        return None
-
-    timestamp = timestamp or datetime.now().astimezone()
+def _write_workbook(contacts, output_directory, timestamp, prefix="mailchimp"):
     report_date = timestamp.strftime("%Y-%m-%d")
-    output_directory = Path(output_dir)
+    output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
     output_path = output_directory / (
-        f"mailchimp_{timestamp:%Y-%m-%d_%H%M%S}.xlsx"
+        f"{prefix}_{timestamp:%Y-%m-%d_%H%M%S}.xlsx"
     )
 
     workbook = Workbook()
@@ -182,9 +171,70 @@ def export_mailchimp_list(output_dir=MAILCHIMP_DIR, timestamp=None):
                 bool(row["premium"]), row["exhibitor_role"], report_date,
             ])
     workbook.save(output_path)
+    return output_path
 
+
+def export_mailchimp_list(output_dir=MAILCHIMP_DIR, timestamp=None):
+    """Write the upload workbook for contacts not exported before.
+
+    Returns the workbook path, or None when there is nothing new. The emails
+    are recorded as exported only after the file was saved.
+    """
+
+    contacts = pending_contacts()
+    if not contacts:
+        return None
+
+    timestamp = timestamp or datetime.now().astimezone()
+    output_path = _write_workbook(contacts, output_dir, timestamp)
     _record_exported(contacts, timestamp, output_path.name)
     return output_path
+
+
+def rebuild_mailchimp_list(
+    source_file=None, output_dir=MAILCHIMP_DIR, timestamp=None
+):
+    """Recreate an already exported list from the current data.
+
+    Writes the contacts of ``source_file`` (default: the most recent real
+    export) with today's data and format. The export log is not changed, so
+    the contacts stay marked as exported. Returns the path, or None when no
+    export exists.
+    """
+
+    database.initialize_database()
+    with _connect() as connection:
+        _ensure_table(connection)
+        if source_file is None:
+            latest = connection.execute(
+                "SELECT source_file FROM mailchimp_exported_emails "
+                "WHERE source_file NOT LIKE 'baseline%' "
+                "ORDER BY exported_at DESC LIMIT 1"
+            ).fetchone()
+            if latest is None:
+                return None
+            source_file = latest["source_file"]
+        emails = {
+            row["email"]
+            for row in connection.execute(
+                "SELECT email FROM mailchimp_exported_emails "
+                "WHERE source_file = ?",
+                (source_file,),
+            )
+        }
+        contacts = {
+            email: rows
+            for email, rows in _group_by_email(
+                _current_participations(connection)
+            ).items()
+            if email in emails
+        }
+    if not contacts:
+        return None
+    timestamp = timestamp or datetime.now().astimezone()
+    return _write_workbook(
+        contacts, output_dir, timestamp, prefix="mailchimp_rebuilt"
+    )
 
 
 def _record_exported(emails, timestamp, source_file):

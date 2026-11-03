@@ -426,6 +426,10 @@ sheet (`Email`, `Company`, `Country`, `City`, `Tag Exhibition`, `Tag Hall`).
   `No new Mailchimp contacts` and writes no file.
 - An address already exported does not reappear when its company registers for
   another fair; the new tag must be added in Mailchimp manually.
+- If an exported file was lost or needs the current format, run
+  `.\md-sync.ps1 mailchimp-rebuild`. It recreates the most recent export
+  (`mailchimp_rebuilt_<timestamp>.xlsx`) from current data without changing
+  the export log.
 - Run `.\md-sync.ps1 mailchimp-baseline` once before the first export to mark
   contacts that are already in Mailchimp, so only later registrations are
   exported.
