@@ -331,12 +331,12 @@ def summarize_change_rows(changes):
 def export_change_report(
     run_id,
     changes,
-    output_dir=CHANGES_DIR,
+    output_dir=None,
     timestamp=None,
 ):
     """Write one edition-specific workbook for a synchronization run."""
 
-    output_directory = Path(output_dir)
+    output_directory = Path(CHANGES_DIR if output_dir is None else output_dir)
     event_name = str(changes[0]["event_name"]).upper()
     edition_directory = output_directory / event_name
     edition_directory.mkdir(parents=True, exist_ok=True)
