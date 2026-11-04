@@ -412,7 +412,7 @@ provisional history and creates no report or success message.
 Internal exports (`.\md-sync.ps1 export` and the change reports) keep all
 collected data. The Mailchimp list is a separate workbook written with
 `.\md-sync.ps1 mailchimp` to `exports/mailchimp/mailchimp_<timestamp>.xlsx`,
-shaped like the "Sample Exhibitor List": an `Info INTERN` sheet (company
+shaped like the "Sample Exhibitor List": an `Info INTERNAL` sheet (company
 details, exhibition, hall, stand, source report date) and an `Info Mailchimp`
 sheet (`Email`, `Company`, `Country`, `City`, `Tag Exhibition`, `Tag Hall`).
 

@@ -1,7 +1,7 @@
 """Mailchimp upload list: one new contact per distinct email address.
 
 The internal exports keep all collected data. This module writes a separate
-workbook shaped like the "Sample Exhibitor List" (sheets ``Info INTERN`` and
+workbook shaped like the "Sample Exhibitor List" (sheets ``Info INTERNAL`` and
 ``Info Mailchimp``) and remembers every exported email address so that a
 contact is never handed to Mailchimp twice.
 """
@@ -17,7 +17,6 @@ from openpyxl.utils import get_column_letter
 
 import database
 from config import EVENTS, EXPORTS_DIR
-from country_codes import country_code
 
 MAILCHIMP_DIR = EXPORTS_DIR / "mailchimp"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -100,11 +99,7 @@ def _mailchimp_row(email, rows):
     return [
         email,
         " / ".join(_unique(r["name"] for r in rows)),
-        next(
-            (country_code(r["country"]) for r in rows
-             if country_code(r["country"])),
-            None,
-        ),
+        next((r["country"] for r in rows if r["country"]), None),
         next((r["city"] for r in rows if r["city"]), None),
         ", ".join(_unique(
             f"{r['event_name'].upper()} {r['edition']}" for r in rows
@@ -154,7 +149,7 @@ def _write_workbook(contacts, output_directory, timestamp, prefix="mailchimp"):
 
     workbook = Workbook()
     intern = workbook.active
-    intern.title = "Info INTERN"
+    intern.title = "Info INTERNAL"
     mailchimp = workbook.create_sheet("Info Mailchimp")
     _write_sheet_header(intern, INTERN_HEADERS)
     _write_sheet_header(mailchimp, MAILCHIMP_HEADERS)
