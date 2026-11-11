@@ -21,12 +21,18 @@ switch ($Command) {
     }
     "mailchimp" {
         python -c "from mailchimp_export import export_mailchimp_list; path = export_mailchimp_list(); print(path if path else 'No new Mailchimp contacts')"
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
     }
     "mailchimp-rebuild" {
         python -c "from mailchimp_export import rebuild_mailchimp_list; path = rebuild_mailchimp_list(); print(path if path else 'No earlier Mailchimp export to rebuild')"
     }
     "mailchimp-baseline" {
-        python -c "from mailchimp_export import mark_current_contacts_as_exported as m; print('Marked as already exported:', m())"
+        python -c "from mailchimp_export import print_baseline_result; print_baseline_result()"
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
     }
     "check" {
         python -m compileall -q .

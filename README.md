@@ -414,7 +414,8 @@ collected data. The Mailchimp list is a separate workbook written with
 `.\md-sync.ps1 mailchimp` to `exports/mailchimp/mailchimp_<timestamp>.xlsx`,
 shaped like the "Sample Exhibitor List": an `Info INTERNAL` sheet (company
 details, exhibition, hall, stand, source report date) and an `Info Mailchimp`
-sheet (`Email`, `Company`, `Country`, `City`, `Tag Exhibition`, `Tag Hall`).
+sheet (`Email`, `Company`, `Country`, `City`, `Telephone`, `Tag Exhibition`,
+`Tag Hall`).
 
 - The current editions of all four fairs are included; one row per distinct
   email address (lowercased). Companies sharing an address are merged into one
@@ -431,8 +432,19 @@ sheet (`Email`, `Company`, `Country`, `City`, `Tag Exhibition`, `Tag Hall`).
   (`mailchimp_rebuilt_<timestamp>.xlsx`) from current data without changing
   the export log.
 - Run `.\md-sync.ps1 mailchimp-baseline` once before the first export to mark
-  contacts that are already in Mailchimp, so only later registrations are
-  exported.
+  all currently eligible addresses as already recorded, so they will be
+  excluded from later exports. The command reports distinct usable addresses,
+  how many were previously recorded, how many were newly marked, and companies
+  without a usable email. A zero newly marked count means none were added, not
+  necessarily that the baseline failed. The command does not check Mailchimp:
+  use it only if excluding all current addresses is intended.
+- For unattended weekly runs, run `.\md-sync.ps1 sync` followed by
+  `.\md-sync.ps1 mailchimp` only if the sync succeeds. The latter combines
+  pending addresses from all four current editions into one workbook, or
+  prints `No new Mailchimp contacts` if none remain. Do not run
+  `mailchimp-baseline` after each sync: that marks new contacts as recorded
+  without exporting them. Creating a workbook records addresses as exported;
+  it does not confirm upload or contact in Mailchimp.
 
 ## Historical Archives (reconstructed 2023)
 

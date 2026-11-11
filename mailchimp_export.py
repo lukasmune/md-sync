@@ -8,8 +8,9 @@ contact is never handed to Mailchimp twice.
 
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
@@ -27,7 +28,8 @@ INTERN_HEADERS = [
     "Source Report Date",
 ]
 MAILCHIMP_HEADERS = [
-    "Email", "Company", "Country", "City", "Tag Exhibition", "Tag Hall",
+    "Email", "Company", "Country", "City", "Telephone", "Tag Exhibition",
+    "Tag Hall",
 ]
 
 
@@ -101,6 +103,7 @@ def _mailchimp_row(email, rows):
         " / ".join(_unique(r["name"] for r in rows)),
         next((r["country"] for r in rows if r["country"]), None),
         next((r["city"] for r in rows if r["city"]), None),
+        next((r["telephone"] for r in rows if r["telephone"]), None),
         ", ".join(_unique(
             f"{r['event_name'].upper()} {r['edition']}" for r in rows
         )),
@@ -120,23 +123,27 @@ def _write_sheet_header(worksheet, headers):
         ].width = 24
 
 
+def _pending_contacts(connection):
+    contacts = _group_by_email(_current_participations(connection))
+    exported = {
+        row["email"]
+        for row in connection.execute(
+            "SELECT email FROM mailchimp_exported_emails"
+        )
+    }
+    return {
+        email: rows for email, rows in contacts.items()
+        if email not in exported
+    }
+
+
 def pending_contacts():
     """Return {email: rows} for current-edition emails never exported."""
 
     database.initialize_database()
     with _connect() as connection:
         _ensure_table(connection)
-        contacts = _group_by_email(_current_participations(connection))
-        exported = {
-            row["email"]
-            for row in connection.execute(
-                "SELECT email FROM mailchimp_exported_emails"
-            )
-        }
-    return {
-        email: rows for email, rows in contacts.items()
-        if email not in exported
-    }
+        return _pending_contacts(connection)
 
 
 def _write_workbook(contacts, output_directory, timestamp, prefix="mailchimp"):
@@ -146,6 +153,11 @@ def _write_workbook(contacts, output_directory, timestamp, prefix="mailchimp"):
     output_path = output_directory / (
         f"{prefix}_{timestamp:%Y-%m-%d_%H%M%S}.xlsx"
     )
+    while output_path.exists():
+        timestamp += timedelta(seconds=1)
+        output_path = output_directory / (
+            f"{prefix}_{timestamp:%Y-%m-%d_%H%M%S}.xlsx"
+        )
 
     workbook = Workbook()
     intern = workbook.active
@@ -176,14 +188,64 @@ def export_mailchimp_list(output_dir=MAILCHIMP_DIR, timestamp=None):
     are recorded as exported only after the file was saved.
     """
 
-    contacts = pending_contacts()
-    if not contacts:
-        return None
+    database.initialize_database()
+    with _connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_table(connection)
+        contacts = _pending_contacts(connection)
+        if not contacts:
+            return None
 
+        timestamp = timestamp or datetime.now().astimezone()
+        output_path = _write_workbook(contacts, output_dir, timestamp)
+        connection.executemany(
+            "INSERT INTO mailchimp_exported_emails "
+            "(email, exported_at, source_file) VALUES (?, ?, ?)",
+            [(email, timestamp.isoformat(), output_path.name) for email in contacts],
+        )
+        return output_path
+
+
+def recover_baselined_run(run_id, baseline_timestamp, output_dir=MAILCHIMP_DIR,
+                          timestamp=None):
+    """Recreate a sync's new contacts marked by a particular baseline.
+
+    The export history is not modified. Previously exported addresses and
+    contacts not included in the specified baseline remain excluded.
+    """
+
+    database.initialize_database()
+    with _connect() as connection:
+        _ensure_table(connection)
+        company_ids = {
+            row["company_id"]
+            for row in connection.execute(
+                "SELECT DISTINCT company_id FROM change_history "
+                "WHERE run_id = ? AND record_type = 'participation' "
+                "AND is_new = 1",
+                (run_id,),
+            )
+        }
+        baseline_emails = {
+            row["email"]
+            for row in connection.execute(
+                "SELECT email FROM mailchimp_exported_emails "
+                "WHERE source_file = ? AND exported_at = ?",
+                ("baseline (not exported)", baseline_timestamp),
+            )
+        }
+        all_contacts = _group_by_email(_current_participations(connection))
+        contacts = {
+            email: rows for email, rows in all_contacts.items()
+            if email in baseline_emails
+            and any(row["company_id"] in company_ids for row in rows)
+        }
+    if not contacts:
+        raise ValueError("No matching baselined contacts found for the sync run")
     timestamp = timestamp or datetime.now().astimezone()
-    output_path = _write_workbook(contacts, output_dir, timestamp)
-    _record_exported(contacts, timestamp, output_path.name)
-    return output_path
+    return _write_workbook(
+        contacts, output_dir, timestamp, prefix="mailchimp_recovered"
+    )
 
 
 def rebuild_mailchimp_list(
@@ -232,25 +294,56 @@ def rebuild_mailchimp_list(
     )
 
 
-def _record_exported(emails, timestamp, source_file):
+class BaselineResult(NamedTuple):
+    eligible_addresses: int
+    already_recorded: int
+    newly_recorded: int
+    companies_without_usable_email: int
+
+
+def baseline_current_contacts():
+    """Record current addresses and return counts for the baseline operation."""
+
+    database.initialize_database()
     with _connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         _ensure_table(connection)
+        participations = _current_participations(connection)
+        contacts = _group_by_email(participations)
+        companies = {row["company_id"]: row for row in participations}
+        missing = sum(
+            normalize_email(row["email"]) is None for row in companies.values()
+        )
+        before = connection.total_changes
+        timestamp = datetime.now().astimezone().isoformat()
         connection.executemany(
             "INSERT OR IGNORE INTO mailchimp_exported_emails "
             "(email, exported_at, source_file) VALUES (?, ?, ?)",
-            [(email, timestamp.isoformat(), source_file) for email in emails],
+            [(email, timestamp, "baseline (not exported)") for email in contacts],
+        )
+        newly_recorded = connection.total_changes - before
+        return BaselineResult(
+            len(contacts), len(contacts) - newly_recorded, newly_recorded, missing
         )
 
 
 def mark_current_contacts_as_exported():
-    """Record all current emails as already in Mailchimp, without a file.
+    """Record current addresses without a file; return the number newly marked."""
 
-    Use once, before the first export, when the existing contacts were
-    contacted by other means. Returns the number of emails recorded.
-    """
+    return baseline_current_contacts().newly_recorded
 
-    contacts = pending_contacts()
-    _record_exported(
-        contacts, datetime.now().astimezone(), "baseline (not exported)"
+
+def print_baseline_result():
+    """Run the baseline and explain its coverage in the terminal."""
+
+    result = baseline_current_contacts()
+    print(f"Current-edition distinct usable addresses: {result.eligible_addresses}")
+    print(f"Already recorded by previous exports or baselines: {result.already_recorded}")
+    print(f"Newly marked by this baseline: {result.newly_recorded}")
+    print(
+        "Current-edition companies without a usable email: "
+        f"{result.companies_without_usable_email}"
     )
-    return len(contacts)
+    if not result.eligible_addresses:
+        print("No usable email addresses found for the configured current editions.")
+    print("Recorded addresses are not verified against the Mailchimp audience.")
