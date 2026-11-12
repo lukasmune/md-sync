@@ -60,6 +60,15 @@ def test_sheets_and_headers_match_sample(mailchimp_db):
     assert workbook["Info INTERNAL"].auto_filter.ref == "A1:M1"
 
 
+def test_mailchimp_sheet_uses_mailchimp_country_spelling(mailchimp_db):
+    _sync(_record("E1", "Acme Inc", "info@acme.com", country="USA"))
+    path = mailchimp_export.export_mailchimp_list(mailchimp_db)
+    workbook = load_workbook(path)
+
+    assert _contacts(path)["info@acme.com"][2] == "United States of America"
+    assert workbook["Info INTERNAL"]["B2"].value == "United States of America"
+
+
 def test_shared_email_is_merged_and_missing_email_skipped(mailchimp_db):
     _sync(
         _record("E1", "Acme GmbH", "info@group.de", hall="Hall 1"),

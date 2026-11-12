@@ -18,6 +18,7 @@ from openpyxl.utils import get_column_letter
 
 import database
 from config import EVENTS, EXPORTS_DIR
+from mailchimp_countries import mailchimp_country
 
 MAILCHIMP_DIR = EXPORTS_DIR / "mailchimp"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -101,7 +102,10 @@ def _mailchimp_row(email, rows):
     return [
         email,
         " / ".join(_unique(r["name"] for r in rows)),
-        next((r["country"] for r in rows if r["country"]), None),
+        next(
+            (mailchimp_country(r["country"]) for r in rows if r["country"]),
+            None,
+        ),
         next((r["city"] for r in rows if r["city"]), None),
         next((r["telephone"] for r in rows if r["telephone"]), None),
         ", ".join(_unique(
@@ -171,7 +175,8 @@ def _write_workbook(contacts, output_directory, timestamp, prefix="mailchimp"):
         mailchimp.append(_mailchimp_row(email, rows))
         for row in rows:
             intern.append([
-                row["name"], row["country"], row["city"], row["website"],
+                row["name"], mailchimp_country(row["country"]), row["city"],
+                row["website"],
                 email, row["telephone"],
                 f"{row['event_name'].upper()} {row['edition']}",
                 row["hall"], row["stand"], row["location"],
