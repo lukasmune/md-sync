@@ -407,6 +407,17 @@ edition without new entries still has updated data, the program asks
 editions never create empty reports, and a failed synchronization discards its
 provisional history and creates no report or success message.
 
+### Full list of all four editions
+
+`.\md-sync.ps1 export-all` writes one timestamped workbook,
+`exports/all_editions/all_editions_<timestamp>.xlsx`, with the current editions
+of GIFA, METEC, NEWCAST and THERMPROCESS: a `Summary` sheet (companies per
+fair), `All Exhibitors` (one row per fair participation with country code,
+contact details, stand data and product categories) and `Companies` (one row
+per company with the fairs it attends). It only reads the database and never
+touches the Mailchimp export history, so it does not affect
+`.\md-sync.ps1 mailchimp`.
+
 ### Mailchimp upload list
 
 Internal exports (`.\md-sync.ps1 export` and the change reports) keep all
@@ -439,9 +450,21 @@ sheet (`Email`, `Company`, `Country`, `City`, `Telephone`, `Tag Exhibition`,
   necessarily that the baseline failed. The command does not check Mailchimp:
   use it only if excluding all current addresses is intended.
 - For unattended weekly runs, run `.\md-sync.ps1 sync` followed by
-  `.\md-sync.ps1 mailchimp` only if the sync succeeds. The latter combines
-  pending addresses from all four current editions into one workbook, or
-  prints `No new Mailchimp contacts` if none remain. Do not run
+  `.\md-sync.ps1 mailchimp-publish` only if the sync succeeds. It does what
+  `mailchimp` does and additionally copies the new file to the shared drive:
+  `mailchimp_2026-11-25_090917.xlsx` becomes
+  `<delivery folder>\Export 25112026\Export_2026-11-25_090917.xlsx`
+  (folder `Export DDMMYYYY`, file `Export_YYYY-MM-DD_HHMMSS`). The delivery
+  folder defaults to `P:\1. FP - GEMEINSAME DATEIEN\GIFA Messe\GIFA 2027\Ausstellerlisten von der Website`
+  and can be overridden with the `MD_SYNC_DELIVERY_DIR` environment variable
+  (`MAILCHIMP_DELIVERY_DIR` in `config.py`). The original stays in
+  `exports/mailchimp`, an existing file is never overwritten, and a second run
+  on the same day adds its file to the existing folder. If the drive is not
+  reachable the command prints `Delivery FAILED`, exits with an error, and
+  keeps the local file; `.\md-sync.ps1 mailchimp-deliver` retries the copy.
+  Nothing is copied when there are no new contacts. The plain `mailchimp`
+  command never copies. Pending addresses from all four current editions are
+  combined into one workbook, or `No new Mailchimp contacts` is printed. Do not run
   `mailchimp-baseline` after each sync: that marks new contacts as recorded
   without exporting them. Creating a workbook records addresses as exported;
   it does not confirm upload or contact in Mailchimp.

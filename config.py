@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 
@@ -10,6 +11,11 @@ DATABASE_PATH = DATA_DIR / "md-sync.db"
 LEGACY_DATABASE_PATH = DATA_DIR / "gifa.db"
 EXPORTS_DIR = BASE_DIR / "exports"
 CHANGES_DIR = EXPORTS_DIR / "changes"
+MAILCHIMP_DELIVERY_DIR = Path(os.environ.get(
+    "MD_SYNC_DELIVERY_DIR",
+    r"P:\1. FP - GEMEINSAME DATEIEN\GIFA Messe\GIFA 2027"
+    r"\Ausstellerlisten von der Website",
+))
 
 GIFA_BASE_URL = (
     "https://widgets.messe-duesseldorf.de/vis-api/vis/v1/en/directory"

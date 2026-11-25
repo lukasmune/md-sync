@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("test", "smoke", "sync", "export", "mailchimp", "mailchimp-rebuild", "mailchimp-baseline", "check", "help")]
+    [ValidateSet("test", "smoke", "sync", "export", "export-all", "mailchimp", "mailchimp-publish", "mailchimp-deliver", "mailchimp-rebuild", "mailchimp-baseline", "check", "help")]
     [string]$Command = "help"
 )
 
@@ -19,8 +19,26 @@ switch ($Command) {
     "export" {
         python -c "from excel_export import export_database_to_excel; print(export_database_to_excel('exports'))"
     }
+    "export-all" {
+        python -c "from full_list_export import export_full_list; print(export_full_list())"
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+    }
     "mailchimp" {
         python -c "from mailchimp_export import export_mailchimp_list; path = export_mailchimp_list(); print(path if path else 'No new Mailchimp contacts')"
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+    }
+    "mailchimp-publish" {
+        python -c "import sys; from mailchimp_delivery import publish; sys.exit(publish())"
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+    }
+    "mailchimp-deliver" {
+        python -c "import sys; from mailchimp_delivery import deliver_latest; sys.exit(deliver_latest())"
         if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
         }
@@ -46,7 +64,10 @@ switch ($Command) {
         Write-Host "  smoke   Test the live GIFA API"
         Write-Host "  sync    Synchronize GIFA, METEC, THERMPROCESS, and NEWCAST records"
         Write-Host "  export  Export records to Excel (internal, all data)"
+        Write-Host "  export-all  One workbook with all four current editions (no Mailchimp effect)"
         Write-Host "  mailchimp  Write the Mailchimp upload list (new contacts only)"
+        Write-Host "  mailchimp-publish  Mailchimp list plus copy to the shared drive (scheduled task)"
+        Write-Host "  mailchimp-deliver  Retry copying the latest Mailchimp list to the shared drive"
         Write-Host "  mailchimp-rebuild  Recreate the last Mailchimp list (log unchanged)"
         Write-Host "  mailchimp-baseline  Mark all current contacts as already exported"
         Write-Host "  check   Compile Python and check the diff"
